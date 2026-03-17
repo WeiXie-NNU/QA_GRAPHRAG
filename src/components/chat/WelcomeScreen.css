@@ -1,0 +1,122 @@
+/**
+ * 欢迎界面组件样式 - 简洁风格
+ */
+
+.welcome-screen {
+  position: absolute;
+  top: 35%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  text-align: center;
+  background: transparent;
+  animation: fadeIn 0.5s ease;
+  pointer-events: none;
+  z-index: 5;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.welcome-content {
+  max-width: 900px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.welcome-title {
+  font-size: 1.75rem;
+  font-weight: 500;
+  color: #1e293b;
+  line-height: 1.6;
+  letter-spacing: -0.3px;
+  margin: 0;
+}
+
+/* 第一行打字效果 - 2秒打完，闪烁约3次后停止 */
+.welcome-line-1 {
+  display: inline-block;
+  white-space: nowrap;
+  overflow: hidden;
+  border-right: 2px solid transparent;
+  width: 0;
+  animation: 
+    typewriter-line1 2s steps(15, end) forwards,
+    blink-caret-line1 0.75s step-end 3;
+}
+
+/* 第二行打字效果 - 延迟2.2秒开始，闪烁约3次后停止 */
+.welcome-line-2 {
+  display: inline-block;
+  white-space: nowrap;
+  overflow: hidden;
+  border-right: 2px solid transparent;
+  width: 0;
+  animation: 
+    typewriter-line2 2s steps(12, end) 2.2s forwards,
+    blink-caret-line2 0.75s step-end 3 2.2s;
+}
+
+/* 第一行打字动画 */
+@keyframes typewriter-line1 {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+/* 第二行打字动画 */
+@keyframes typewriter-line2 {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+/* 第一行光标闪烁 */
+@keyframes blink-caret-line1 {
+  from, to {
+    border-right-color: transparent;
+  }
+  50% {
+    border-right-color: #2563eb;
+  }
+}
+
+/* 第二行光标闪烁 */
+@keyframes blink-caret-line2 {
+  from, to {
+    border-right-color: transparent;
+  }
+  50% {
+    border-right-color: #2563eb;
+  }
+}
+
+/* 响应式布局 */
+@media (max-width: 640px) {
+  .welcome-title {
+    font-size: 1.3rem;
+  }
+  
+  .welcome-screen {
+    padding: 40px 16px 16px;
+  }
+}

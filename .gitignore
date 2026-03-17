@@ -1,0 +1,58 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Node and frontend build outputs
+node_modules
+runtime/node_modules
+dist
+dist-ssr
+*.local
+
+# Local environment and temporary files
+.env
+.env.*
+tmp_*
+tmp/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Database files (persistent data)
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Python environments and cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+.pytest_cache/
+.mypy_cache/
+
+# OS and local tooling
+.cache/
+
+# Large local resources and generated knowledge artifacts
+resources/repositories.zip
+resources/repositories/
+agent/test_agent/kg/

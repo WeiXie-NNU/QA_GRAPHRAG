@@ -1,0 +1,61 @@
+/**
+ * 侧边栏组件样式
+ * 
+ * 学术浅色主题
+ */
+
+/* 侧边栏基础样式已在 App.css 中定义 */
+/* 此文件可用于添加组件特定的样式覆盖 */
+
+/* 知识图谱链接样式 */
+.knowledge-graph-link {
+  padding: 8px 0;
+  margin-bottom: 12px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.kg-link-button {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #2563eb 0%, #3b82f6 100%);
+  border: none;
+  border-radius: 8px;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.kg-link-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+/* 用户头像区域样式已移至 App.css */
+
+.thread-load-more {
+  width: 100%;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.thread-load-more:hover:not(:disabled) {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.thread-load-more:disabled {
+  cursor: default;
+  opacity: 0.7;
+}

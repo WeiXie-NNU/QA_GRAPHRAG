@@ -1,0 +1,195 @@
+/**
+ * 助手消息组件样式 - 精简版
+ * 
+ * Markdown 样式继承自 App.css 中的 .markdown-content
+ */
+
+/* 消息容器 - 无气泡 */
+.assistant-message-wrapper {
+  display: block;
+  padding: 0;
+  margin: 0;
+}
+
+/* 内容区域 */
+.assistant-content {
+  width: 100%;
+}
+
+.assistant-divider {
+  position: relative;
+  height: 28px;
+  margin-top: 10px;
+}
+
+.assistant-divider::after {
+  content: "";
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  top: 50%;
+  border-top: 1px solid rgba(100, 116, 139, 0.18);
+}
+
+@media (max-width: 768px) {
+  .assistant-divider::after {
+    left: 8%;
+    right: 8%;
+  }
+}
+
+/* 文本内容 */
+.assistant-text {
+  line-height: 1.8;
+  color: #000000;
+}
+
+.assistant-text-plain {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 子组件容器 */
+.assistant-sub {
+  margin-top: 12px;
+}
+
+/* 地图容器 */
+.assistant-map {
+  margin-top: 12px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* 加载状态 */
+.assistant-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #64748b;
+  font-style: italic;
+}
+
+.assistant-loading::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border: 2px solid #2563eb;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: assistant-spin 1s linear infinite;
+}
+
+@keyframes assistant-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 案例分布图章节 */
+.case-distribution-section {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.case-distribution-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0 0 12px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.geo-loading {
+  color: #64748b;
+  font-size: 14px;
+}
+
+.geo-load-btn {
+  border: 1px solid #dbe4f0;
+  background: #f8fbff;
+  color: #1d4ed8;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.geo-load-btn:hover {
+  background: #eef5ff;
+  border-color: #bfd5ff;
+  transform: translateY(-1px);
+}
+
+/* =============== GraphRAG 查询按钮 =============== */
+.graphrag-buttons {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.graphrag-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.graphrag-btn:hover {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.graphrag-btn:active {
+  transform: translateY(0);
+}
+
+.graphrag-btn .btn-icon {
+  font-size: 16px;
+}
+
+.graphrag-btn .btn-text {
+  white-space: nowrap;
+}
+
+/* Local Search 按钮 - 蓝色调 */
+.graphrag-btn.local-btn {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.graphrag-btn.local-btn:hover {
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  border-color: #60a5fa;
+}
+
+/* Global Search 按钮 - 绿色调 */
+.graphrag-btn.global-btn {
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+  border-color: #6ee7b7;
+  color: #047857;
+}
+
+.graphrag-btn.global-btn:hover {
+  background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%);
+  border-color: #34d399;
+}

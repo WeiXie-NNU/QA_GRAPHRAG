@@ -1,0 +1,499 @@
+/**
+ * 案例详情侧边栏样式 - 学术浅色主题
+ * 
+ * 与整体系统风格保持一致
+ * 使用 React Portal 渲染到 body 根节点，避免层叠上下文冲突
+ */
+
+/* 侧边栏遮罩层 - 使用最大安全 z-index */
+.case-sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(4px);
+  z-index: 2147483647; /* 32位有符号整数最大值，确保在所有元素之上 */
+  display: flex;
+  justify-content: flex-end;
+  animation: fadeIn 0.2s ease-out;
+  isolation: isolate; /* 创建新的层叠上下文 */
+  pointer-events: auto; /* 确保可以接收点击事件 */
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 侧边栏主体 - 浅色主题 */
+.case-sidebar {
+  width: 480px;
+  max-width: 90vw;
+  height: 100vh;
+  background: #ffffff;
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  animation: slideIn 0.3s ease-out;
+  overflow: hidden;
+  position: relative;
+  z-index: 1; /* 相对于 overlay 内部的层级 */
+  pointer-events: auto; /* 确保可以接收点击事件 */
+  transform: translate3d(0, 0, 0); /* 强制创建合成层,提升渲染优先级 */
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* 头部 */
+.case-sidebar-header {
+  padding: 20px 24px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.case-sidebar-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.case-icon {
+  font-size: 24px;
+}
+
+.case-sidebar-title h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.close-btn {
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: #64748b;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.close-btn:hover {
+  background: #e2e8f0;
+  color: #1e293b;
+  transform: scale(1.05);
+}
+
+/* 内容区域 */
+.case-sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+  background: #fafbfc;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 #f1f5f9;
+}
+
+.case-sidebar-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.case-sidebar-content::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 3px;
+}
+
+.case-sidebar-content::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.case-sidebar-content::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* 分组区域 */
+.case-section {
+  margin-bottom: 20px;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b !important;
+  margin: 0 0 12px 0;
+}
+
+.title-icon {
+  font-size: 16px;
+}
+
+.param-count {
+  margin-left: auto;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+  background: #f1f5f9;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+/* 案例ID和相似度 */
+.case-id-badge {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border: 1px solid #e2e8f0;
+  padding: 12px 16px;
+  border-radius: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.badge-label {
+  font-size: 11px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.badge-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #2563eb;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+}
+
+.similarity-badge {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  padding: 12px 16px;
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.similarity-label {
+  font-size: 11px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  margin-right: 12px;
+}
+
+.similarity-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #16a34a;
+  margin-right: 8px;
+}
+
+.similarity-bar {
+  margin-top: 10px;
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.similarity-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #22c55e, #16a34a);
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+
+.match-reason {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #f0fdf4;
+  border-left: 3px solid #22c55e;
+  border-radius: 0 8px 8px 0;
+  font-size: 13px;
+  color: #166534;
+}
+
+.reason-icon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+/* 信息卡片 */
+.info-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.info-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.info-label {
+  font-size: 11px;
+  color: #64748b !important;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.info-value {
+  font-size: 14px;
+  color: #1e293b !important;
+  font-weight: 500;
+}
+
+.info-description {
+  margin: 4px 0 0 0;
+  font-size: 13px;
+  color: #475569 !important;
+  line-height: 1.6;
+}
+
+.sensor-tag {
+  display: inline-block;
+  background: #eff6ff;
+  color: #2563eb !important;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid #bfdbfe;
+}
+
+.reliability-tag {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.reliability-high {
+  background: #dcfce7;
+  color: #16a34a !important;
+  border: 1px solid #bbf7d0;
+}
+
+.reliability-medium {
+  background: #fef3c7;
+  color: #d97706 !important;
+  border: 1px solid #fde68a;
+}
+
+.reliability-low {
+  background: #fee2e2;
+  color: #dc2626 !important;
+  border: 1px solid #fecaca;
+}
+
+/* 参数表格 */
+.param-category {
+  margin-bottom: 16px;
+}
+
+.category-header {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  color: #1d4ed8;
+  padding: 10px 14px;
+  border-radius: 8px 8px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border: 1px solid #bfdbfe;
+  border-bottom: none;
+}
+
+.param-table {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0 0 8px 8px;
+  overflow: hidden;
+}
+
+.param-table-header,
+.param-table-row {
+  display: grid;
+  grid-template-columns: 90px 1fr 70px;
+  gap: 12px;
+  padding: 10px 14px;
+  align-items: center;
+}
+
+.param-table-header {
+  background: #f8fafc;
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.param-table-row {
+  font-size: 13px;
+  border-bottom: 1px solid #f1f5f9;
+  transition: background 0.15s ease;
+}
+
+.param-table-row:last-child {
+  border-bottom: none;
+}
+
+.param-table-row:hover {
+  background: #f8fafc;
+}
+
+.param-name {
+  font-weight: 600;
+  color: #2563eb;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-size: 12px;
+}
+
+.param-range {
+  color: #1e293b;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-size: 12px;
+}
+
+.param-unit {
+  color: #64748b;
+  font-size: 11px;
+}
+
+/* 论文卡片 */
+.paper-card {
+  background: linear-gradient(135deg, #fdf4ff 0%, #faf5ff 100%);
+  border: 1px solid #e9d5ff;
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.paper-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1e293b !important;
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.paper-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.paper-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #ffffff;
+  border: 1px solid #e9d5ff;
+  border-radius: 6px;
+  font-size: 11px;
+  color: #7c3aed !important;
+  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+}
+
+.file-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.file-name {
+  word-break: break-all;
+  color: #7c3aed !important;
+}
+
+.download-pdf-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
+  color: #ffffff !important;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(124, 58, 237, 0.2);
+}
+
+.download-pdf-btn:hover {
+  background: linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
+}
+
+.download-pdf-btn:active {
+  transform: translateY(0);
+}
+
+.download-icon {
+  font-size: 16px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .case-sidebar {
+    width: 100vw;
+    max-width: 100vw;
+  }
+  
+  .info-card {
+    grid-template-columns: 1fr;
+  }
+  
+  .param-table-header,
+  .param-table-row {
+    grid-template-columns: 70px 1fr 60px;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+}

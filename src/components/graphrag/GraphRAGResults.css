@@ -1,0 +1,347 @@
+/* GraphRAG 结果显示样式 */
+
+.graphrag-results-container {
+  margin: 20px 0;
+  padding: 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.results-header {
+  margin-bottom: 16px;
+}
+
+.results-header h3 {
+  color: white;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 单个结果卡片 */
+.graphrag-result {
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.graphrag-result:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* 标题栏 */
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.result-header:hover {
+  background: #e9ecef;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.result-icon {
+  font-size: 20px;
+}
+
+.result-title {
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.result-badge {
+  font-size: 12px;
+  padding: 4px 8px;
+  background: #4CAF50;
+  color: white;
+  border-radius: 12px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+}
+
+.expand-icon {
+  color: #6c757d;
+  font-size: 14px;
+}
+
+/* 内容区 */
+.result-content {
+  padding: 16px;
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.result-section {
+  margin-bottom: 16px;
+}
+
+.result-section:last-child {
+  margin-bottom: 0;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #495057;
+  margin: 0 0 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 查询文本 */
+.query-text {
+  padding: 12px;
+  background: #e3f2fd;
+  border-left: 4px solid #2196F3;
+  border-radius: 4px;
+  color: #1565c0;
+  font-size: 14px;
+}
+
+/* 响应文本 */
+.response-text {
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: 4px;
+  color: #333;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+/* 上下文数据 */
+.context-data {
+  padding: 12px;
+  background: #fff8e1;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.context-item {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.context-item:last-child {
+  margin-bottom: 0;
+}
+
+.context-key {
+  font-weight: 600;
+  color: #f57c00;
+  min-width: 120px;
+}
+
+.context-value {
+  color: #5d4037;
+}
+
+/* 来源文档列表 */
+.source-list {
+  margin: 0;
+  padding-left: 20px;
+  list-style-type: none;
+}
+
+.source-item {
+  position: relative;
+  padding: 6px 0;
+  color: #555;
+  font-size: 13px;
+}
+
+.source-item::before {
+  content: "📄";
+  position: absolute;
+  left: -20px;
+}
+
+/* 元数据 */
+.result-meta {
+  display: flex;
+  gap: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #e0e0e0;
+  margin-top: 12px;
+}
+
+.meta-item {
+  font-size: 12px;
+  color: #6c757d;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 论文来源样式 */
+.paper-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.paper-source-item {
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 3px solid #667eea;
+  transition: all 0.2s ease;
+}
+
+.paper-source-item:hover {
+  background: #e9ecef;
+  border-left-color: #764ba2;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.paper-title {
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 8px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.paper-authors {
+  font-size: 13px;
+  color: #495057;
+  margin-bottom: 6px;
+}
+
+.paper-meta {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: #6c757d;
+}
+
+.paper-journal {
+  font-style: italic;
+}
+
+.paper-year {
+  font-weight: 500;
+}
+
+.paper-doi {
+  margin-bottom: 6px;
+}
+
+.doi-link {
+  font-size: 12px;
+  color: #667eea;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.doi-link:hover {
+  color: #764ba2;
+  text-decoration: underline;
+}
+
+.paper-citation {
+  font-size: 11px;
+  color: #868e96;
+  background: #fff;
+  padding: 8px;
+  border-radius: 4px;
+  margin-top: 8px;
+  line-height: 1.5;
+  font-family: 'Courier New', monospace;
+}
+
+/* 来源文档折叠样式 */
+.source-documents-details {
+  border: 1px dashed #dee2e6;
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.source-documents-details summary {
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  color: #495057;
+  padding: 4px;
+}
+
+.source-documents-details summary:hover {
+  color: #667eea;
+}
+
+.source-documents-details .source-list {
+  margin-top: 8px;
+  padding-left: 20px;
+}
+
+/* Local/Global 特定样式 */
+.graphrag-result.local .result-header {
+  border-left: 4px solid #FF6B6B;
+}
+
+.graphrag-result.global .result-header {
+  border-left: 4px solid #4ECDC4;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .graphrag-results-container {
+    padding: 12px;
+  }
+
+  .result-header {
+    padding: 10px 12px;
+  }
+
+  .result-content {
+    padding: 12px;
+  }
+
+  .result-title {
+    font-size: 14px;
+  }
+
+  .context-item {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .context-key {
+    min-width: auto;
+  }
+}

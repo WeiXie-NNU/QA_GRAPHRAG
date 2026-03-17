@@ -1,0 +1,20 @@
+/**
+ * 基础全局样式
+ * 
+ * 只保留最基础的样式设置，主题相关样式在 App.css 中定义
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+#root {
+  width: 100%;
+  height: 100vh;
+}

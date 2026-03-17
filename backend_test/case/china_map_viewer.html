@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中国地图层级查看器</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background-color: #f5f5f5;
+        }
+        
+        .header {
+            background-color: #2c5aa0;
+            color: white;
+            padding: 15px 0;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        
+        .controls {
+            background-color: white;
+            padding: 15px;
+            text-align: center;
+            border-bottom: 1px solid #ddd;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
+        .level-buttons {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .level-btn {
+            padding: 10px 25px;
+            border: 2px solid #2c5aa0;
+            background-color: white;
+            color: #2c5aa0;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            outline: none;
+        }
+        
+        .level-btn:hover {
+            background-color: #2c5aa0;
+            color: white;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(44, 90, 160, 0.3);
+        }
+        
+        .level-btn.active {
+            background-color: #2c5aa0;
+            color: white;
+            box-shadow: 0 2px 4px rgba(44, 90, 160, 0.5);
+        }
+        
+        .level-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .map-container {
+            position: relative;
+            height: calc(100vh - 140px);
+            width: 100%;
+        }
+        
+        #map {
+            height: 100%;
+            width: 100%;
+        }
+        
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+        
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #2c5aa0;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .info-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background-color: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            z-index: 1000;
+            max-width: 300px;
+        }
+        
+        .info-panel h3 {
+            margin: 0 0 10px 0;
+            color: #2c5aa0;
+            font-size: 16px;
+        }
+        
+        .info-panel .info-item {
+            margin: 5px 0;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .error-message {
+            background-color: #ffebee;
+            color: #c62828;
+            padding: 10px;
+            margin: 10px;
+            border-radius: 4px;
+            border: 1px solid #ffcdd2;
+            text-align: center;
+        }
+        
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 20px;
+            }
+            
+            .level-buttons {
+                gap: 10px;
+            }
+            
+            .level-btn {
+                padding: 8px 16px;
+                font-size: 14px;
+            }
+            
+            .info-panel {
+                position: relative;
+                top: auto;
+                right: auto;
+                margin: 10px;
+                max-width: none;
+            }
+            
+            .map-container {
+                height: calc(100vh - 200px);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>中国地图层级查看器</h1>
+    </div>
+    
+    <div class="controls">
+        <div class="level-buttons">
+            <button class="level-btn active" id="province-btn" onclick="switchLevel('province')">
+                省级地图
+            </button>
+            <button class="level-btn" id="city-btn" onclick="switchLevel('city')">
+                市级地图
+            </button>
+            <button class="level-btn" id="county-btn" onclick="switchLevel('county')">
+                县级地图
+            </button>
+        </div>
+    </div>
+    
+    <div class="map-container">
+        <div id="loading" class="loading" style="display: none;">
+            <div class="loading-spinner"></div>
+            <div>正在加载地图数据...</div>
+        </div>
+        
+        <div id="map"></div>
+        
+        <div class="info-panel">
+            <h3>地图信息</h3>
+            <div class="info-item">当前层级: <span id="current-level">省级</span></div>
+            <div class="info-item">要素数量: <span id="feature-count">--</span></div>
+            <div class="info-item">点击地图区域查看详情</div>
+        </div>
+    </div>
+
+    <!-- Leaflet JavaScript -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <script>
+        // 地图配置
+        const MAP_CONFIG = {
+            center: [35.8617, 104.1954], // 中国中心坐标
+            zoom: 5,
+            minZoom: 3,
+            maxZoom: 10
+        };
+        
+        // 地图文件路径配置
+        const MAP_FILES = {
+            province: './administration/中国_省.geojson',
+            city: './administration/中国_市.geojson',
+            county: './administration/中国_县.geojson'
+        };
+        
+        // 层级名称
+        const LEVEL_NAMES = {
+            province: '省级',
+            city: '市级',
+            county: '县级'
+        };
+        
+        // 全局变量
+        let map;
+        let currentLayer;
+        let currentLevel = 'province';
+        
+        // 初始化地图
+        function initMap() {
+            map = L.map('map', {
+                center: MAP_CONFIG.center,
+                zoom: MAP_CONFIG.zoom,
+                minZoom: MAP_CONFIG.minZoom,
+                maxZoom: MAP_CONFIG.maxZoom,
+                zoomControl: true
+            });
+            
+            // 添加底图
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19
+            }).addTo(map);
+            
+            // 加载默认层级
+            loadLevel('province');
+        }
+        
+        // 切换地图层级
+        function switchLevel(level) {
+            if (level === currentLevel) return;
+            
+            // 更新按钮状态
+            document.querySelectorAll('.level-btn').forEach(btn => {
+                btn.classList.remove('active');
+                btn.disabled = true;
+            });
+            
+            document.getElementById(`${level}-btn`).classList.add('active');
+            
+            // 加载新层级
+            loadLevel(level);
+        }
+        
+        // 加载指定层级的地图数据
+        async function loadLevel(level) {
+            showLoading(true);
+            
+            try {
+                // 移除当前图层
+                if (currentLayer) {
+                    map.removeLayer(currentLayer);
+                }
+                
+                // 加载GeoJSON数据
+                const response = await fetch(MAP_FILES[level]);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const geojsonData = await response.json();
+                
+                // 创建新图层
+                currentLayer = L.geoJSON(geojsonData, {
+                    style: getFeatureStyle,
+                    onEachFeature: onEachFeature
+                }).addTo(map);
+                
+                // 调整地图视野
+                map.fitBounds(currentLayer.getBounds(), {
+                    padding: [20, 20]
+                });
+                
+                // 更新状态
+                currentLevel = level;
+                updateInfo(level, geojsonData.features.length);
+                
+                console.log(`成功加载${LEVEL_NAMES[level]}地图，包含 ${geojsonData.features.length} 个要素`);
+                
+            } catch (error) {
+                console.error('加载地图数据失败:', error);
+                showError(`加载${LEVEL_NAMES[level]}地图失败: ${error.message}`);
+            } finally {
+                showLoading(false);
+                // 重新启用所有按钮
+                document.querySelectorAll('.level-btn').forEach(btn => {
+                    btn.disabled = false;
+                });
+            }
+        }
+        
+        // 获取要素样式
+        function getFeatureStyle(feature) {
+            return {
+                fillColor: '#74a9cf',
+                weight: 1,
+                opacity: 0.8,
+                color: '#2171b5',
+                dashArray: '',
+                fillOpacity: 0.5
+            };
+        }
+        
+        // 为每个要素添加交互事件
+        function onEachFeature(feature, layer) {
+            // 鼠标悬停效果
+            layer.on({
+                mouseover: function(e) {
+                    const layer = e.target;
+                    layer.setStyle({
+                        weight: 2,
+                        color: '#08519c',
+                        fillOpacity: 0.7
+                    });
+                    layer.bringToFront();
+                },
+                mouseout: function(e) {
+                    currentLayer.resetStyle(e.target);
+                },
+                click: function(e) {
+                    // 点击显示属性信息
+                    const properties = feature.properties;
+                    let popupContent = '<div style="font-family: Microsoft YaHei;">';
+                    popupContent += `<h4 style="margin: 0 0 10px 0; color: #2c5aa0;">${LEVEL_NAMES[currentLevel]}信息</h4>`;
+                    
+                    // 显示所有属性
+                    for (let key in properties) {
+                        if (properties.hasOwnProperty(key) && properties[key] !== null) {
+                            popupContent += `<div style="margin: 3px 0;"><strong>${key}:</strong> ${properties[key]}</div>`;
+                        }
+                    }
+                    
+                    popupContent += '</div>';
+                    
+                    layer.bindPopup(popupContent).openPopup();
+                }
+            });
+        }
+        
+        // 显示/隐藏加载提示
+        function showLoading(show) {
+            const loading = document.getElementById('loading');
+            loading.style.display = show ? 'block' : 'none';
+        }
+        
+        // 更新信息面板
+        function updateInfo(level, featureCount) {
+            document.getElementById('current-level').textContent = LEVEL_NAMES[level];
+            document.getElementById('feature-count').textContent = featureCount.toLocaleString();
+        }
+        
+        // 显示错误信息
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.textContent = message;
+            
+            const controls = document.querySelector('.controls');
+            controls.appendChild(errorDiv);
+            
+            // 5秒后自动移除错误信息
+            setTimeout(() => {
+                if (errorDiv.parentNode) {
+                    errorDiv.parentNode.removeChild(errorDiv);
+                }
+            }, 5000);
+        }
+        
+        // 页面加载完成后初始化地图
+        document.addEventListener('DOMContentLoaded', function() {
+            initMap();
+        });
+        
+        // 窗口大小改变时调整地图
+        window.addEventListener('resize', function() {
+            if (map) {
+                setTimeout(() => map.invalidateSize(), 100);
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,195 @@
+/**
+ * 模型选择器组件样式
+ */
+
+.model-selector-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  --ms-text: #171717;
+  --ms-muted: #8a8a8a;
+  --ms-border: #d4d4d4;
+  --ms-pill-bg: #ececec;
+  --ms-pill-bg-hover: #e5e5e5;
+  --ms-option-hover: #f4f4f4;
+  --ms-scrollbar-track: #f3f3f3;
+  --ms-scrollbar-thumb: #d4d4d4;
+  --ms-scrollbar-thumb-hover: #a3a3a3;
+}
+
+.model-selector-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  color: var(--ms-text);
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+  box-shadow: none;
+}
+
+.model-selector-btn:hover {
+  background: var(--ms-pill-bg);
+  border-color: #dcdcdc;
+}
+
+.model-selector-btn:focus-visible {
+  outline: none;
+  border-color: #d4d4d4;
+  box-shadow: 0 0 0 2px rgba(163, 163, 163, 0.25);
+}
+
+.model-selector-btn.open {
+  background: var(--ms-pill-bg);
+  border-color: #dcdcdc;
+}
+
+.model-selector-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.model-selector-btn .model-name {
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.model-selector-btn .arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--ms-muted);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.model-selector-btn .arrow svg {
+  width: 100%;
+  height: 100%;
+}
+
+.model-selector-btn.open .arrow {
+  transform: rotate(180deg);
+}
+
+.model-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 280px;
+  max-width: min(82vw, 340px);
+  background: #ffffff;
+  border: 1px solid var(--ms-border);
+  border-radius: 16px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  overflow: hidden;
+  animation: slideDown 0.14s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.model-dropdown-header {
+  padding: 12px 16px 6px;
+  border-bottom: none;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ms-muted);
+  background: #ffffff;
+}
+
+.model-dropdown-list {
+  padding: 4px 8px 8px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.model-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  border-radius: 10px;
+}
+
+.model-option:hover {
+  background: var(--ms-option-hover);
+}
+
+.model-option.selected {
+  background: var(--ms-option-hover);
+}
+
+.model-option-name {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.96rem;
+  font-weight: 500;
+  color: var(--ms-text);
+}
+
+.model-option-name .check {
+  color: var(--ms-text);
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.model-option-desc {
+  font-size: 0.78rem;
+  color: #7a7a7a;
+  line-height: 1.3;
+}
+
+/* 滚动条样式 */
+.model-dropdown-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.model-dropdown-list::-webkit-scrollbar-track {
+  background: var(--ms-scrollbar-track);
+}
+
+.model-dropdown-list::-webkit-scrollbar-thumb {
+  background: var(--ms-scrollbar-thumb);
+  border-radius: 6px;
+  border: 1px solid var(--ms-scrollbar-track);
+}
+
+.model-dropdown-list::-webkit-scrollbar-thumb:hover {
+  background: var(--ms-scrollbar-thumb-hover);
+}
+
+@media (max-width: 640px) {
+  .model-selector-btn {
+    max-width: calc(100vw - 110px);
+  }
+
+  .model-dropdown {
+    min-width: 270px;
+    max-width: calc(100vw - 24px);
+  }
+}
