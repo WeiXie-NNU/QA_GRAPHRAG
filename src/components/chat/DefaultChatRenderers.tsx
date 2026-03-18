@@ -28,13 +28,13 @@ function getUserTextContent(content: UserMessageProps["message"] extends { conte
 }
 
 export const DefaultImageRenderer = ({ content, image }: ImageRendererProps) => (
-  <div className="copilotKitMessage copilotKitUserMessage">
+  <div className="copilotKitImageRendering">
     <img
+      className="copilotKitImageRenderingImage"
       src={`data:image/${image.format};base64,${image.bytes}`}
       alt={content || "uploaded image"}
-      style={{ maxWidth: "100%", borderRadius: 12, display: "block" }}
     />
-    {content ? <div style={{ marginTop: 8 }}>{content}</div> : null}
+    {content ? <div className="copilotKitImageRenderingContent">{content}</div> : null}
   </div>
 );
 

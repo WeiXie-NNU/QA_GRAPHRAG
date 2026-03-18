@@ -30,6 +30,65 @@ function getMessageKey(message: Message, index: number): string {
   return `message:${index}:${String(message.role)}:${String((message as any)?.content ?? "")}`;
 }
 
+function hasTextContent(content: unknown): boolean {
+  if (typeof content === "string") {
+    return content.trim().length > 0;
+  }
+
+  if (!Array.isArray(content)) {
+    return false;
+  }
+
+  return content.some((part) => {
+    if (typeof part === "string") {
+      return part.trim().length > 0;
+    }
+
+    if (!part || typeof part !== "object") {
+      return false;
+    }
+
+    if ((part as any).type === "text") {
+      return String((part as any).text ?? "").trim().length > 0;
+    }
+
+    return true;
+  });
+}
+
+function isRenderableMessage(
+  message: Message,
+  index: number,
+  total: number,
+  inProgress: boolean
+): boolean {
+  if (!message) {
+    return false;
+  }
+
+  if (message.role === "user") {
+    return hasTextContent((message as any).content) || Boolean((message as any).image);
+  }
+
+  if (message.role !== "assistant") {
+    return false;
+  }
+
+  if (hasTextContent((message as any).content)) {
+    return true;
+  }
+
+  if (typeof (message as any).generativeUI === "function") {
+    return true;
+  }
+
+  if (inProgress && index === total - 1) {
+    return true;
+  }
+
+  return false;
+}
+
 function mergeMessageGroups(...groups: Message[][]): Message[] {
   const order: string[] = [];
   const latestById = new Map<string, Message>();
@@ -166,6 +225,32 @@ const ScrollPlaceholder: React.FC = () => (
   </div>
 );
 
+const MessagesScroller = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ className, ...props }, ref) => (
+    <div
+      {...props}
+      ref={ref}
+      className={["copilotKitMessages", "copilotKitMessagesScroller", className]
+        .filter(Boolean)
+        .join(" ")}
+    />
+  )
+);
+MessagesScroller.displayName = "MessagesScroller";
+
+const MessagesList = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ className, ...props }, ref) => (
+    <div
+      {...props}
+      ref={ref}
+      className={["copilotKitMessagesContainer", "copilotKitMessagesList", className]
+        .filter(Boolean)
+        .join(" ")}
+    />
+  )
+);
+MessagesList.displayName = "MessagesList";
+
 export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
   messages: liveMessages,
   inProgress,
@@ -192,11 +277,13 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
   threadKey = "",
 }) => {
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
+  const shellRef = useRef<HTMLDivElement | null>(null);
   const deferredLiveMessages = useDeferredValue(liveMessages);
   const initialMessages = useMemo(() => makeInitialMessages(initialContent), [initialContent]);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [firstItemIndex, setFirstItemIndex] = useState(FIRST_ITEM_INDEX_BASE);
   const [renderedRange, setRenderedRange] = useState({ startIndex: 0, endIndex: -1 });
+  const [shellHeight, setShellHeight] = useState(0);
   const isAtBottomRef = useRef(true);
   const loadOlderInFlightRef = useRef(false);
   const prevHistoryCountRef = useRef(0);
@@ -211,14 +298,18 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
     [historyMessages, initialMessages, sourceMessages]
   );
   const historyCount = historyMessages.length;
+  const renderableMessages = useMemo(
+    () => messages.filter((message, index) => isRenderableMessage(message, index, messages.length, inProgress)),
+    [inProgress, messages]
+  );
   const messageRows = useMemo<MessageRowData[]>(
     () =>
-      messages.map((message, index) => ({
+      renderableMessages.map((message, index) => ({
         message,
         messageKey: getMessageKey(message, index),
         relativeIndex: index,
       })),
-    [messages]
+    [renderableMessages]
   );
   const tailKey = messageRows[messageRows.length - 1]?.messageKey ?? "";
   const renderedCount =
@@ -227,6 +318,7 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
       : 0;
   const savedCount = Math.max(0, messages.length - renderedCount);
   const liveCount = sourceMessages.length;
+  const canRenderVirtuoso = shellHeight > 0;
 
   useEffect(() => {
     isAtBottomRef.current = isAtBottom;
@@ -239,6 +331,37 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
     setRenderedRange({ startIndex: 0, endIndex: -1 });
     setIsAtBottom(true);
     setFirstItemIndex(FIRST_ITEM_INDEX_BASE);
+    setShellHeight(0);
+  }, [threadKey]);
+
+  useEffect(() => {
+    const node = shellRef.current;
+    if (!node) {
+      return;
+    }
+
+    const updateShellHeight = () => {
+      setShellHeight((prev) => {
+        const next = node.clientHeight;
+        return prev === next ? prev : next;
+      });
+    };
+
+    updateShellHeight();
+
+    if (typeof ResizeObserver !== "function") {
+      const timer = window.setTimeout(updateShellHeight, 0);
+      return () => window.clearTimeout(timer);
+    }
+
+    const observer = new ResizeObserver(() => {
+      updateShellHeight();
+    });
+    observer.observe(node);
+
+    return () => {
+      observer.disconnect();
+    };
   }, [threadKey]);
 
   useEffect(() => {
@@ -279,6 +402,20 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
       });
     }
   }, [inProgress, messageRows.length, tailKey]);
+
+  useEffect(() => {
+    if (!interruptElement || messageRows.length === 0) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      virtuosoRef.current?.scrollToIndex({
+        index: messageRows.length - 1,
+        align: "end",
+        behavior: "auto",
+      });
+    });
+  }, [interruptElement, messageRows.length]);
 
   const triggerLoadOlder = useCallback(() => {
     if (!hasOlderHistory || isLoadingOlderHistory || loadOlderInFlightRef.current || !onLoadOlderHistory) {
@@ -329,7 +466,11 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
   );
 
   return (
-    <div className="copilotKitMessages" style={{ position: "relative", height: "100%" }}>
+    <div
+      ref={shellRef}
+      className="copilotKitMessagesShell"
+      style={{ position: "relative", height: "100%", minHeight: 0 }}
+    >
       {perfEnabled && (
         <div
           style={{
@@ -358,64 +499,110 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
           <div>older: {hasOlderHistory ? (isLoadingOlderHistory ? "loading" : "ready") : "done"}</div>
           <div>atBottom: {isAtBottom ? "yes" : "no"}</div>
           <div>stream: {inProgress ? "on" : "off"}</div>
+          <div>height: {shellHeight}px</div>
         </div>
       )}
 
-      <Virtuoso
-        ref={virtuosoRef}
-        style={{ height: "100%" }}
-        data={messageRows}
-        firstItemIndex={firstItemIndex}
-        overscan={OVERSCAN_PX}
-        atBottomThreshold={80}
-        startReached={triggerLoadOlder}
-        atBottomStateChange={handleAtBottomStateChange}
-        rangeChanged={handleRangeChanged}
-        followOutput={false}
-        scrollSeekConfiguration={scrollSeekConfiguration}
-        computeItemKey={(_, row) => row.messageKey}
-        itemContent={(_, row) => (
-          <RenderedMessageRow
-            AssistantMessage={AssistantMessage}
-            ImageRenderer={ImageRenderer}
-            RenderMessage={RenderMessage}
-            UserMessage={UserMessage}
-            index={row.relativeIndex}
-            inProgress={inProgress}
-            markdownTagRenderers={markdownTagRenderers}
-            message={row.message}
-            messageFeedback={messageFeedback}
-            messageKey={row.messageKey}
-            messages={messages}
-            onCopy={onCopy}
-            onRegenerate={onRegenerate}
-            onThumbsDown={onThumbsDown}
-            onThumbsUp={onThumbsUp}
-          />
-        )}
-        components={{
-          Header: hasOlderHistory || isLoadingOlderHistory
-            ? () => (
-                <div style={{ padding: "0 24px 12px", textAlign: "center", color: "#64748b", fontSize: 13 }}>
-                  {isLoadingOlderHistory ? "加载更早历史中..." : "上滑加载更早历史"}
-                </div>
-              )
-            : undefined,
-          Footer: () => (
-            <>
-              {interruptElement ? <div style={{ padding: "0 24px 12px" }}>{interruptElement}</div> : null}
-              {chatError && ErrorMessage ? (
-                <div style={{ padding: "0 24px 12px" }}>
-                  <ErrorMessage error={chatError} />
-                </div>
-              ) : null}
-              {children ? <div style={{ padding: "0 24px 12px" }}>{children}</div> : null}
-              <div style={{ height: 8 }} />
-            </>
-          ),
-          ScrollSeekPlaceholder: ScrollPlaceholder,
-        }}
-      />
+      {canRenderVirtuoso ? (
+        <Virtuoso
+          ref={virtuosoRef}
+          style={{ height: "100%" }}
+          data={messageRows}
+          firstItemIndex={firstItemIndex}
+          overscan={OVERSCAN_PX}
+          atBottomThreshold={80}
+          startReached={triggerLoadOlder}
+          atBottomStateChange={handleAtBottomStateChange}
+          rangeChanged={handleRangeChanged}
+          followOutput={false}
+          scrollSeekConfiguration={scrollSeekConfiguration}
+          computeItemKey={(_, row) => row.messageKey}
+          itemContent={(_, row) => (
+            <RenderedMessageRow
+              AssistantMessage={AssistantMessage}
+              ImageRenderer={ImageRenderer}
+              RenderMessage={RenderMessage}
+              UserMessage={UserMessage}
+              index={row.relativeIndex}
+              inProgress={inProgress}
+              markdownTagRenderers={markdownTagRenderers}
+              message={row.message}
+              messageFeedback={messageFeedback}
+              messageKey={row.messageKey}
+              messages={renderableMessages}
+              onCopy={onCopy}
+              onRegenerate={onRegenerate}
+              onThumbsDown={onThumbsDown}
+              onThumbsUp={onThumbsUp}
+            />
+          )}
+          components={{
+            Scroller: MessagesScroller,
+            List: MessagesList,
+            Header: hasOlderHistory || isLoadingOlderHistory
+              ? () => (
+                  <div style={{ padding: "0 24px 12px", textAlign: "center", color: "#64748b", fontSize: 13 }}>
+                    {isLoadingOlderHistory ? "加载更早历史中..." : "上滑加载更早历史"}
+                  </div>
+                )
+              : undefined,
+            Footer: () => (
+              <>
+                {chatError && ErrorMessage ? (
+                  <div style={{ padding: "0 24px 12px" }}>
+                    <ErrorMessage error={chatError} />
+                  </div>
+                ) : null}
+                {children ? <div style={{ padding: "0 24px 12px" }}>{children}</div> : null}
+                <div style={{ height: 8 }} />
+              </>
+            ),
+            ScrollSeekPlaceholder: ScrollPlaceholder,
+          }}
+        />
+      ) : (
+        <div className="copilotKitMessages copilotKitMessagesScroller">
+          <div className="copilotKitMessagesList">
+            {hasOlderHistory || isLoadingOlderHistory ? (
+              <div style={{ padding: "0 24px 12px", textAlign: "center", color: "#64748b", fontSize: 13 }}>
+                {isLoadingOlderHistory ? "加载更早历史中..." : "上滑加载更早历史"}
+              </div>
+            ) : null}
+            {messageRows.map((row) => (
+              <RenderedMessageRow
+                key={row.messageKey}
+                AssistantMessage={AssistantMessage}
+                ImageRenderer={ImageRenderer}
+                RenderMessage={RenderMessage}
+                UserMessage={UserMessage}
+                index={row.relativeIndex}
+                inProgress={inProgress}
+                markdownTagRenderers={markdownTagRenderers}
+                message={row.message}
+                messageFeedback={messageFeedback}
+                messageKey={row.messageKey}
+                messages={renderableMessages}
+                onCopy={onCopy}
+                onRegenerate={onRegenerate}
+                onThumbsDown={onThumbsDown}
+                onThumbsUp={onThumbsUp}
+              />
+            ))}
+            {chatError && ErrorMessage ? (
+              <div style={{ padding: "0 24px 12px" }}>
+                <ErrorMessage error={chatError} />
+              </div>
+            ) : null}
+            {children ? <div style={{ padding: "0 24px 12px" }}>{children}</div> : null}
+            <div style={{ height: 8 }} />
+          </div>
+        </div>
+      )}
+      {interruptElement ? (
+        <div className="copilotKitInterruptFooter">
+          <div className="copilotKitInterruptCardWrap">{interruptElement}</div>
+        </div>
+      ) : null}
     </div>
   );
 };

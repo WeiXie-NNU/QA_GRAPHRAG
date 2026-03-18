@@ -10,13 +10,14 @@ import "./WelcomeScreen.css";
 interface WelcomeScreenProps {
   /** 是否显示 */
   visible: boolean;
+  variant?: "overlay" | "inline";
 }
 
-export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ visible }) => {
+export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ visible, variant = "overlay" }) => {
   if (!visible) return null;
 
   return (
-    <div className="welcome-screen">
+    <div className={`welcome-screen ${variant === "inline" ? "inline" : ""}`}>
       <div className="welcome-content">
         <h1 className="welcome-title">
           <span className="welcome-line-1">

@@ -138,10 +138,18 @@ export function createNewThreadId(): string {
 export function getThreads(userId?: string | null): ThreadMeta[] {
   // 非权威快照，仅用于服务端暂不可达时的 UI 回显。
   try {
-    const raw = localStorage.getItem(getThreadsCacheKey(userId ?? getCurrentUserId()));
+    const resolvedUserId = userId ?? getCurrentUserId();
+    const raw = localStorage.getItem(getThreadsCacheKey(resolvedUserId));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as ThreadMeta[];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .filter((item) => !item?.userId || item.userId === resolvedUserId)
+      .map((item) => ({
+        ...item,
+        userId: item?.userId ?? resolvedUserId ?? undefined,
+      }));
   } catch {
     return [];
   }
@@ -173,7 +181,12 @@ export interface ThreadClientState {
 
 export function saveThreadsCacheSnapshot(threads: ThreadMeta[], userId?: string | null): void {
   try {
-    localStorage.setItem(getThreadsCacheKey(userId ?? getCurrentUserId()), JSON.stringify(threads));
+    const resolvedUserId = userId ?? getCurrentUserId();
+    const snapshot = threads.map((thread) => ({
+      ...thread,
+      userId: thread.userId ?? resolvedUserId ?? undefined,
+    }));
+    localStorage.setItem(getThreadsCacheKey(resolvedUserId), JSON.stringify(snapshot));
   } catch {}
 }
 

@@ -14,11 +14,10 @@ import {
 } from "./DefaultChatRenderers";
 import { VirtualizedMessages } from "./VirtualizedMessages";
 import { useThreadHistory } from "./useThreadHistory";
-import { WelcomeScreen } from "./WelcomeScreen";
 import { ModelSelector } from "./ModelSelector";
 import { HITLInterruptCard } from "./HITLInterruptCard";
 import { useAgent } from "../../contexts";
-import { CHAT_INSTRUCTIONS, CHAT_SUGGESTIONS } from "../../lib/consts";
+import { CHAT_INSTRUCTIONS } from "../../lib/consts";
 import type { AgentType } from "../../lib/consts";
 import { saveThreadAgentState } from "../../services/threadService";
 import type { AgentStateSnapshot } from "../../services/threadService";
@@ -29,16 +28,14 @@ interface ChatAreaProps {
   agent: AgentType;
   threadId: string;
   userId: string;
-  onFirstMessage: (message: string) => void;
-  isNewThread: boolean;
+  shouldLoadHistory: boolean;
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({
   agent,
   threadId,
   userId,
-  onFirstMessage,
-  isNewThread,
+  shouldLoadHistory,
 }) => {
   const { state: agentState, running } = useAgent();
   useCopilotAdditionalInstructions({ instructions: CHAT_INSTRUCTIONS[agent] }, [agent]);
@@ -50,8 +47,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     interrupt,
     agent: connectedAgent,
   } = useCopilotChatInternal({
-    onSubmitMessage: onFirstMessage,
   });
+  const hasPendingInterrupt = Boolean(interrupt);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef<string>("");
   const virtualizedMessagesPropsRef = useRef<Record<string, unknown>>({});
@@ -65,7 +62,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     threadId,
     agent,
     userId,
-    enabled: !isNewThread,
+    enabled: shouldLoadHistory,
   });
   const [perfObserve, setPerfObserve] = useState<boolean>(() => {
     try {
@@ -129,36 +126,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     };
   }, [agentState, running, threadId]);
 
-  useEffect(() => {
-    if (!isNewThread) return;
-    const timer = setTimeout(() => {
-      const textarea = document.querySelector(".copilotKitInput textarea") as HTMLTextAreaElement | null;
-      textarea?.focus();
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [isNewThread, threadId]);
-
   useLangGraphInterrupt({
     render: ({ event, resolve }) => {
       return <HITLInterruptCard eventValue={event?.value} resolve={resolve as any} />;
     },
   }, [threadId]);
-
-  const hasMessages = (messages?.length ?? 0) > 0 || historyMessages.length > 0;
-  const showWelcome = isNewThread && !hasMessages;
-  const suggestions = CHAT_SUGGESTIONS[agent] || [];
-
-  const handleSuggestionClick = useCallback((suggestion: string) => {
-    const textarea = document.querySelector(".copilotKitInput textarea") as HTMLTextAreaElement | null;
-    if (!textarea) return;
-
-    const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-    if (valueSetter) {
-      valueSetter.call(textarea, suggestion);
-      textarea.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-    textarea.focus();
-  }, []);
 
   const handleSendMessage = useCallback(
     async (content: string) => {
@@ -201,25 +173,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         </div>
       </header>
 
-      <div className={`chat-container ${showWelcome ? "with-welcome" : ""}`}>
-        {showWelcome && (
-          <>
-            <WelcomeScreen visible={true} />
-            {suggestions.length > 0 && (
-              <div className="suggestions-container">
-                <div className="suggestions-grid">
-                  {suggestions.map((suggestion, index) => (
-                    <button key={index} className="suggestion-item" onClick={() => handleSuggestionClick(suggestion)}>
-                      <span className="suggestion-icon">💡</span>
-                      <span className="suggestion-text">{suggestion}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
+      <div className="chat-container">
         <div className="copilotKitChat">
           <MessagesWithPerf
             messages={messages as any}
@@ -230,11 +184,11 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             ImageRenderer={DefaultImageRenderer as any}
           />
           <ChatComposer
-            disabled={!connectedAgent}
+            disabled={!connectedAgent || hasPendingInterrupt}
             inProgress={isLoading}
             onSend={handleSendMessage}
             onStop={stopGeneration}
-            placeholder="询问任何问题"
+            placeholder={hasPendingInterrupt ? "请先完成当前人工审核" : "询问任何问题"}
           />
         </div>
       </div>

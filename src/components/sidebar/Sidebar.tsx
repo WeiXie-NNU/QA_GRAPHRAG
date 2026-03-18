@@ -4,7 +4,7 @@
  * 包含线程管理、智能体选择等功能
  */
 
-import React, { useState, useCallback, useEffect, useMemo, useRef, memo } from "react";
+import React, { useState, useCallback, useEffect, useRef, memo } from "react";
 import type { AppUser } from "../../services/authService";
 import type { ThreadMeta } from "../../services/threadService";
 import "./Sidebar.css";
@@ -24,14 +24,10 @@ interface SidebarProps {
   threads: ThreadMeta[];
   /** 当前用户 */
   currentUser: AppUser;
-  /** 所有用户 */
-  users: AppUser[];
   /** 创建新对话 */
   onNewChat: () => void;
   /** 切换线程 */
   onSwitchThread: (threadId: string) => void;
-  /** 切换用户 */
-  onSwitchUser: (userId: string) => void;
   /** 退出登录 */
   onLogout: () => void;
   /** 删除线程 */
@@ -136,10 +132,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentThreadId,
   threads,
   currentUser,
-  users,
   onNewChat,
   onSwitchThread,
-  onSwitchUser,
   onLogout,
   onDeleteThread,
   onRenameThread,
@@ -152,12 +146,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement | null>(null);
-
-  const otherUsers = useMemo(
-    () => users.filter((user) => user.id !== currentUser.id),
-    [currentUser.id, users],
-  );
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
@@ -326,39 +316,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                 </div>
 
-                <div className="user-menu-section">
-                  <p className="user-menu-title">切换账号</p>
-                  {otherUsers.length > 0 ? (
-                    otherUsers.map((user) => (
-                      <button
-                        key={user.id}
-                        type="button"
-                        className="user-menu-item"
-                        onClick={() => {
-                          setIsUserMenuOpen(false);
-                          onSwitchUser(user.id);
-                        }}
-                      >
-                        <span
-                          className="user-menu-item-avatar"
-                          style={{ backgroundColor: user.avatarColor }}
-                        >
-                          {user.name.slice(0, 1).toUpperCase()}
-                        </span>
-                        <span className="user-menu-item-label">{user.name}</span>
-                      </button>
-                    ))
-                  ) : (
-                    <p className="user-menu-empty">暂无其他账号</p>
-                  )}
-                </div>
-
                 <button
                   type="button"
                   className="user-menu-item danger"
                   onClick={() => {
                     setIsUserMenuOpen(false);
-                    onLogout();
+                    setIsLogoutConfirmOpen(true);
                   }}
                 >
                   退出登录
@@ -368,6 +331,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
       </aside>
+
+      {isLogoutConfirmOpen && (
+        <div
+          className="sidebar-confirm-overlay"
+          onClick={() => setIsLogoutConfirmOpen(false)}
+        >
+          <div
+            className="sidebar-confirm-dialog"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3>确认退出登录？</h3>
+            <p>退出后会返回首页，你可以重新登录后再进入对话页面。</p>
+            <div className="sidebar-confirm-actions">
+              <button
+                type="button"
+                className="sidebar-confirm-btn secondary"
+                onClick={() => setIsLogoutConfirmOpen(false)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="sidebar-confirm-btn danger"
+                onClick={() => {
+                  setIsLogoutConfirmOpen(false);
+                  onLogout();
+                }}
+              >
+                确认退出
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

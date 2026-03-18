@@ -18,6 +18,31 @@ type AdminFeature = {
   };
 };
 
+type InterruptResources = {
+  provinceFeatures: AdminFeature[];
+  cityFeatures: AdminFeature[];
+  countyFeatures: AdminFeature[];
+  repositoryData: RepositoryRegistry | null;
+};
+
+type ReviewFormState = {
+  feedback: string;
+  fullName: string;
+  province: string;
+  city: string;
+  county: string;
+  provinceGb: string;
+  cityGb: string;
+  countyGb: string;
+  model: string;
+  parametersText: string;
+  vegetationType: string;
+  timeRange: string;
+};
+
+let interruptResourcesCache: InterruptResources | null = null;
+let interruptResourcesPromise: Promise<InterruptResources> | null = null;
+
 const normalizeCnName = (value: string) =>
   String(value || "")
     .trim()
@@ -25,8 +50,9 @@ const normalizeCnName = (value: string) =>
 
 const getAdminCode = (gb: string) => {
   const raw = String(gb || "").trim();
-  // geojson 中 gb 常见格式为 156 + 6位行政区码（如 156440000）
-  if (raw.length >= 6) return raw.slice(-6);
+  if (raw.length >= 6) {
+    return raw.slice(-6);
+  }
   return raw;
 };
 
@@ -34,15 +60,92 @@ function parseInterruptValue(raw: unknown): InterruptValue {
   if (typeof raw === "string") {
     try {
       const parsed = JSON.parse(raw);
-      return (parsed && typeof parsed === "object") ? (parsed as InterruptValue) : { task: "请人工确认", raw };
+      return parsed && typeof parsed === "object" ? (parsed as InterruptValue) : { task: "请人工确认", raw };
     } catch {
       return { task: "请人工确认", raw };
     }
   }
+
   if (raw && typeof raw === "object") {
     return raw as InterruptValue;
   }
+
   return { task: "请人工确认" };
+}
+
+function createInitialFormState(value: InterruptValue): ReviewFormState {
+  const entities = value.entities && typeof value.entities === "object" ? value.entities : {};
+  const location = entities.location && typeof entities.location === "object" ? entities.location : {};
+
+  return {
+    feedback: "",
+    fullName: String(location.full_name || ""),
+    province: String(location.province || ""),
+    city: String(location.city || ""),
+    county: String(location.county || ""),
+    provinceGb: "",
+    cityGb: "",
+    countyGb: "",
+    model: String(entities.model || "PROSAIL"),
+    parametersText: Array.isArray(entities.parameters) ? entities.parameters.join(", ") : "",
+    vegetationType: String(entities.vegetation_type || ""),
+    timeRange: String(entities.experiment_time_range || ""),
+  };
+}
+
+async function loadInterruptResources(): Promise<InterruptResources> {
+  if (interruptResourcesCache) {
+    return interruptResourcesCache;
+  }
+
+  if (!interruptResourcesPromise) {
+    interruptResourcesPromise = Promise.all([
+      loadAdminGeoJson("province"),
+      loadAdminGeoJson("city"),
+      loadAdminGeoJson("county"),
+      loadRepositoryRegistry(),
+    ])
+      .then(([provinceData, cityData, countyData, registryData]) => {
+        const next: InterruptResources = {
+          provinceFeatures: (((provinceData as any)?.features || []) as AdminFeature[]),
+          cityFeatures: (((cityData as any)?.features || []) as AdminFeature[]),
+          countyFeatures: (((countyData as any)?.features || []) as AdminFeature[]),
+          repositoryData: (registryData || null) as RepositoryRegistry | null,
+        };
+        interruptResourcesCache = next;
+        return next;
+      })
+      .finally(() => {
+        interruptResourcesPromise = null;
+      });
+  }
+
+  return interruptResourcesPromise;
+}
+
+function buildSummaryLines(value: InterruptValue, formState: ReviewFormState): string[] {
+  const entities = value.entities && typeof value.entities === "object" ? value.entities : {};
+  const lines: string[] = [];
+  const locationLabel = [formState.province, formState.city, formState.county].filter(Boolean).join(" / ");
+
+  if (locationLabel) {
+    lines.push(`地点 ${locationLabel}`);
+  } else if (formState.fullName.trim()) {
+    lines.push(`地点 ${formState.fullName.trim()}`);
+  }
+
+  if (formState.model.trim()) {
+    lines.push(`模型 ${formState.model.trim()}`);
+  } else if (entities.model) {
+    lines.push(`模型 ${String(entities.model).trim()}`);
+  }
+
+  const parameters = formState.parametersText.trim();
+  if (parameters) {
+    lines.push(`参数 ${parameters}`);
+  }
+
+  return lines.slice(0, 3);
 }
 
 export const HITLInterruptCard: React.FC<{
@@ -50,440 +153,706 @@ export const HITLInterruptCard: React.FC<{
   resolve: (value: any) => void;
 }> = ({ eventValue, resolve }) => {
   const value = useMemo(() => parseInterruptValue(eventValue), [eventValue]);
-  const task = (value.task as string) || "请人工确认";
+  const interruptKey = useMemo(() => JSON.stringify(value), [value]);
+  const task = String(value.task || "请人工确认");
   const isEntityReview = task.includes("实体抽取") || !!value.entities;
   const requiredFields = Array.isArray(value.required_fields) ? value.required_fields : [];
   const missingFields = Array.isArray(value.missing_required) ? value.missing_required : [];
-  const originalEntities = (value.entities && typeof value.entities === "object") ? value.entities : {};
-  const originalLocation = (originalEntities.location && typeof originalEntities.location === "object")
-    ? originalEntities.location
-    : {};
+  const originalEntities = value.entities && typeof value.entities === "object" ? value.entities : {};
+  const originalLocation =
+    originalEntities.location && typeof originalEntities.location === "object"
+      ? originalEntities.location
+      : {};
 
-  const [feedback, setFeedback] = useState("");
-  const [fullName, setFullName] = useState(String(originalLocation.full_name || ""));
-  const [province, setProvince] = useState(String(originalLocation.province || ""));
-  const [city, setCity] = useState(String(originalLocation.city || ""));
-  const [county, setCounty] = useState(String(originalLocation.county || ""));
-  const [provinceGb, setProvinceGb] = useState("");
-  const [cityGb, setCityGb] = useState("");
-  const [countyGb, setCountyGb] = useState("");
-  const [model, setModel] = useState(String(originalEntities.model || "PROSAIL"));
-  const [parametersText, setParametersText] = useState(
-    Array.isArray(originalEntities.parameters) ? originalEntities.parameters.join(", ") : ""
-  );
-  const [vegetationType, setVegetationType] = useState(String(originalEntities.vegetation_type || ""));
-  const [timeRange, setTimeRange] = useState(String(originalEntities.experiment_time_range || ""));
-  const [provinceFeatures, setProvinceFeatures] = useState<AdminFeature[]>([]);
-  const [cityFeatures, setCityFeatures] = useState<AdminFeature[]>([]);
-  const [countyFeatures, setCountyFeatures] = useState<AdminFeature[]>([]);
-  const [repositoryData, setRepositoryData] = useState<RepositoryRegistry | null>(null);
+  const [formState, setFormState] = useState<ReviewFormState>(() => createInitialFormState(value));
+  const [resources, setResources] = useState<InterruptResources | null>(interruptResourcesCache);
   const [resourcesLoading, setResourcesLoading] = useState(false);
+  const [resourcesError, setResourcesError] = useState("");
+  const [validationError, setValidationError] = useState("");
+  const [submittingAction, setSubmittingAction] = useState<"approve" | "reject" | "terminate" | null>(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(true);
+  const [showEntityJson, setShowEntityJson] = useState(false);
+  const [showContextJson, setShowContextJson] = useState(false);
 
   useEffect(() => {
-    if (!isEntityReview) return;
-    if (provinceFeatures.length && cityFeatures.length && countyFeatures.length && repositoryData) return;
+    setFormState(createInitialFormState(value));
+    setResources(interruptResourcesCache);
+    setResourcesLoading(false);
+    setResourcesError("");
+    setValidationError("");
+    setSubmittingAction(null);
+    setShowEntityJson(false);
+    setShowContextJson(false);
+    setIsDrawerOpen(true);
+  }, [interruptKey, value]);
+
+  useEffect(() => {
+    if (!isEntityReview) {
+      return;
+    }
+
+    if (interruptResourcesCache) {
+      setResources(interruptResourcesCache);
+      return;
+    }
+
     let cancelled = false;
     setResourcesLoading(true);
-    void Promise.all([
-      loadAdminGeoJson("province"),
-      loadAdminGeoJson("city"),
-      loadAdminGeoJson("county"),
-      loadRepositoryRegistry(),
-    ])
-      .then(([provinceData, cityData, countyData, registryData]) => {
-        if (cancelled) return;
-        setProvinceFeatures(((provinceData as any)?.features || []) as AdminFeature[]);
-        setCityFeatures(((cityData as any)?.features || []) as AdminFeature[]);
-        setCountyFeatures(((countyData as any)?.features || []) as AdminFeature[]);
-        setRepositoryData((registryData || null) as RepositoryRegistry | null);
+    setResourcesError("");
+
+    void loadInterruptResources()
+      .then((loaded) => {
+        if (cancelled) {
+          return;
+        }
+        setResources(loaded);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setResourcesError("资源加载失败，已切换为手动输入模式。");
+        }
       })
       .finally(() => {
-        if (!cancelled) setResourcesLoading(false);
+        if (!cancelled) {
+          setResourcesLoading(false);
+        }
       });
+
     return () => {
       cancelled = true;
     };
-  }, [isEntityReview, provinceFeatures.length, cityFeatures.length, countyFeatures.length, repositoryData]);
+  }, [interruptKey, isEntityReview]);
 
-  const modelOptions = useMemo(() => {
-    const repos = (repositoryData?.knowledge_repositories || [])
-      .filter((repo) => repo.enabled !== false)
-      .map((repo) => {
-        const value = String(repo.model_dir_name || repo.id || "").trim().toUpperCase();
-        const label = String(repo.name || value).trim();
-        return { value, label };
-      })
-      .filter((x) => x.value);
-    const unique = new Map<string, { value: string; label: string }>();
-    repos.forEach((x) => unique.set(x.value, x));
-    return Array.from(unique.values());
-  }, [repositoryData]);
-
-  useEffect(() => {
-    if (!modelOptions.length) return;
-    const normalized = String(model || "").trim().toUpperCase();
-    if (!normalized) {
-      setModel(modelOptions[0].value);
-      return;
-    }
-    const matched = modelOptions.some((x) => x.value === normalized);
-    if (!matched) setModel(modelOptions[0].value);
-    else if (normalized !== model) setModel(normalized);
-  }, [model, modelOptions]);
+  function updateFormField<K extends keyof ReviewFormState>(key: K, nextValue: ReviewFormState[K]) {
+    setFormState((prev) => {
+      if (prev[key] === nextValue) {
+        return prev;
+      }
+      return { ...prev, [key]: nextValue };
+    });
+  }
 
   const provinceOptions = useMemo(() => {
-    return provinceFeatures
-      .map((f) => ({
-        name: String(f.properties?.name || "").trim(),
-        gb: String(f.properties?.gb || "").trim(),
+    return (resources?.provinceFeatures || [])
+      .map((feature) => ({
+        name: String(feature.properties?.name || "").trim(),
+        gb: String(feature.properties?.gb || "").trim(),
       }))
-      .filter((x) => x.name && x.gb)
+      .filter((item) => item.name && item.gb)
       .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
-  }, [provinceFeatures]);
-
-  useEffect(() => {
-    if (provinceGb) return;
-    const hit = provinceOptions.find((p) => normalizeCnName(p.name) === normalizeCnName(province));
-    if (hit?.gb) setProvinceGb(hit.gb);
-  }, [province, provinceGb, provinceOptions]);
+  }, [resources]);
 
   const cityOptions = useMemo(() => {
-    if (!provinceGb) return [];
-    const provCode = getAdminCode(provinceGb);
+    if (!formState.provinceGb) {
+      return [];
+    }
+
+    const provCode = getAdminCode(formState.provinceGb);
     const provPrefix = provCode.slice(0, 2);
-    return cityFeatures
-      .map((f) => ({
-        name: String(f.properties?.name || "").trim(),
-        gb: String(f.properties?.gb || "").trim(),
+
+    return (resources?.cityFeatures || [])
+      .map((feature) => ({
+        name: String(feature.properties?.name || "").trim(),
+        gb: String(feature.properties?.gb || "").trim(),
       }))
-      .filter((x) => {
-        if (!x.name || !x.gb) return false;
-        const code = getAdminCode(x.gb);
-        return code.slice(0, 2) === provPrefix;
+      .filter((item) => {
+        if (!item.name || !item.gb) {
+          return false;
+        }
+        return getAdminCode(item.gb).slice(0, 2) === provPrefix;
       })
       .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
-  }, [cityFeatures, provinceGb]);
-
-  useEffect(() => {
-    if (cityGb) return;
-    const hit = cityOptions.find((c) => normalizeCnName(c.name) === normalizeCnName(city));
-    if (hit?.gb) setCityGb(hit.gb);
-  }, [city, cityGb, cityOptions]);
+  }, [formState.provinceGb, resources]);
 
   const countyOptions = useMemo(() => {
-    if (!provinceGb) return [];
-    const provCode = getAdminCode(provinceGb);
+    if (!formState.provinceGb) {
+      return [];
+    }
+
+    const provCode = getAdminCode(formState.provinceGb);
     const provPrefix = provCode.slice(0, 2);
-    const cityPrefix = cityGb ? getAdminCode(cityGb).slice(0, 4) : "";
-    return countyFeatures
-      .map((f) => ({
-        name: String(f.properties?.name || "").trim(),
-        gb: String(f.properties?.gb || "").trim(),
+    const cityPrefix = formState.cityGb ? getAdminCode(formState.cityGb).slice(0, 4) : "";
+
+    return (resources?.countyFeatures || [])
+      .map((feature) => ({
+        name: String(feature.properties?.name || "").trim(),
+        gb: String(feature.properties?.gb || "").trim(),
       }))
-      .filter((x) => {
-        if (!x.name || !x.gb) return false;
-        const code = getAdminCode(x.gb);
-        if (cityPrefix) return code.slice(0, 4) === cityPrefix;
+      .filter((item) => {
+        if (!item.name || !item.gb) {
+          return false;
+        }
+
+        const code = getAdminCode(item.gb);
+        if (cityPrefix) {
+          return code.slice(0, 4) === cityPrefix;
+        }
         return code.slice(0, 2) === provPrefix;
       })
       .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
-  }, [countyFeatures, provinceGb, cityGb]);
+  }, [formState.cityGb, formState.provinceGb, resources]);
+
+  const modelOptions = useMemo(() => {
+    const repos = (resources?.repositoryData?.knowledge_repositories || [])
+      .filter((repo) => repo.enabled !== false)
+      .map((repo) => {
+        const modelValue = String(repo.model_dir_name || repo.id || "").trim().toUpperCase();
+        const label = String(repo.name || modelValue).trim();
+        return { value: modelValue, label };
+      })
+      .filter((item) => item.value);
+
+    const unique = new Map<string, { value: string; label: string }>();
+    repos.forEach((item) => unique.set(item.value, item));
+    return Array.from(unique.values());
+  }, [resources]);
 
   useEffect(() => {
-    if (!provinceGb) {
-      if (cityGb) setCityGb("");
-      if (countyGb) setCountyGb("");
-      if (city) setCity("");
-      if (county) setCounty("");
+    if (formState.provinceGb || !provinceOptions.length) {
       return;
     }
-    const cityValid = !cityGb || cityOptions.some((c) => c.gb === cityGb);
-    if (!cityValid) {
-      setCityGb("");
-      setCity("");
+
+    const hit = provinceOptions.find((option) => normalizeCnName(option.name) === normalizeCnName(formState.province));
+    if (hit?.gb) {
+      updateFormField("provinceGb", hit.gb);
+    }
+  }, [formState.province, formState.provinceGb, provinceOptions]);
+
+  useEffect(() => {
+    if (formState.cityGb || !cityOptions.length) {
+      return;
     }
 
-    const countyValid = !countyGb || countyOptions.some((c) => c.gb === countyGb);
-    if (!countyValid) {
-      setCountyGb("");
-      setCounty("");
+    const hit = cityOptions.find((option) => normalizeCnName(option.name) === normalizeCnName(formState.city));
+    if (hit?.gb) {
+      updateFormField("cityGb", hit.gb);
     }
-  }, [provinceGb, cityGb, countyGb, city, county, cityOptions, countyOptions]);
+  }, [cityOptions, formState.city, formState.cityGb]);
 
-  const details = missingFields.length ? `缺失字段: ${missingFields.join(", ")}` : "";
+  useEffect(() => {
+    if (!modelOptions.length) {
+      return;
+    }
+
+    const normalized = String(formState.model || "").trim().toUpperCase();
+    if (!normalized) {
+      updateFormField("model", modelOptions[0].value);
+      return;
+    }
+
+    if (!modelOptions.some((item) => item.value === normalized)) {
+      updateFormField("model", modelOptions[0].value);
+      return;
+    }
+
+    if (normalized !== formState.model) {
+      updateFormField("model", normalized);
+    }
+  }, [formState.model, modelOptions]);
+
+  useEffect(() => {
+    if (!formState.provinceGb) {
+      if (formState.cityGb || formState.countyGb || formState.city || formState.county) {
+        setFormState((prev) => ({
+          ...prev,
+          cityGb: "",
+          countyGb: "",
+          city: "",
+          county: "",
+        }));
+      }
+      return;
+    }
+
+    const cityValid = !formState.cityGb || cityOptions.some((item) => item.gb === formState.cityGb);
+    const countyValid = !formState.countyGb || countyOptions.some((item) => item.gb === formState.countyGb);
+
+    if (cityValid && countyValid) {
+      return;
+    }
+
+    setFormState((prev) => ({
+      ...prev,
+      cityGb: cityValid ? prev.cityGb : "",
+      city: cityValid ? prev.city : "",
+      countyGb: countyValid ? prev.countyGb : "",
+      county: countyValid ? prev.county : "",
+    }));
+  }, [
+    cityOptions,
+    countyOptions,
+    formState.city,
+    formState.cityGb,
+    formState.county,
+    formState.countyGb,
+    formState.provinceGb,
+  ]);
+
   const entitySummary = originalEntities && Object.keys(originalEntities).length
     ? JSON.stringify(originalEntities, null, 2)
     : "";
   const geoContextSummary = value.geo_context && Object.keys(value.geo_context).length
     ? JSON.stringify(value.geo_context, null, 2)
     : "";
+  const summaryLines = buildSummaryLines(value, formState);
 
   const buildEntitiesPatch = (): Record<string, any> => {
     const patch: Record<string, any> = {};
     const locationPatch: Record<string, string> = {};
 
-    const oldFullName = String(originalLocation.full_name || "");
-    const oldProvince = String(originalLocation.province || "");
-    const oldCity = String(originalLocation.city || "");
-    const oldCounty = String(originalLocation.county || "");
-    if (fullName !== oldFullName) locationPatch.full_name = fullName;
-    if (province !== oldProvince) locationPatch.province = province;
-    if (city !== oldCity) locationPatch.city = city;
-    if (county !== oldCounty) locationPatch.county = county;
-    if (Object.keys(locationPatch).length) patch.location = locationPatch;
+    if (formState.fullName !== String(originalLocation.full_name || "")) {
+      locationPatch.full_name = formState.fullName;
+    }
+    if (formState.province !== String(originalLocation.province || "")) {
+      locationPatch.province = formState.province;
+    }
+    if (formState.city !== String(originalLocation.city || "")) {
+      locationPatch.city = formState.city;
+    }
+    if (formState.county !== String(originalLocation.county || "")) {
+      locationPatch.county = formState.county;
+    }
+    if (Object.keys(locationPatch).length) {
+      patch.location = locationPatch;
+    }
 
-    const oldModel = String(originalEntities.model || "");
-    if (model !== oldModel) patch.model = model;
+    if (formState.model !== String(originalEntities.model || "")) {
+      patch.model = formState.model;
+    }
 
-    const parsedParams = parametersText
+    const parsedParameters = formState.parametersText
       .split(",")
-      .map((s) => s.trim())
+      .map((part) => part.trim())
       .filter(Boolean);
-    const oldParams = Array.isArray(originalEntities.parameters) ? originalEntities.parameters : [];
-    if (JSON.stringify(parsedParams) !== JSON.stringify(oldParams)) patch.parameters = parsedParams;
+    const originalParameters = Array.isArray(originalEntities.parameters) ? originalEntities.parameters : [];
+    if (JSON.stringify(parsedParameters) !== JSON.stringify(originalParameters)) {
+      patch.parameters = parsedParameters;
+    }
 
-    const oldVegetation = String(originalEntities.vegetation_type || "");
-    if (vegetationType !== oldVegetation) patch.vegetation_type = vegetationType;
+    if (formState.vegetationType !== String(originalEntities.vegetation_type || "")) {
+      patch.vegetation_type = formState.vegetationType;
+    }
 
-    const oldTimeRange = String(originalEntities.experiment_time_range || "");
-    if (timeRange !== oldTimeRange) patch.experiment_time_range = timeRange;
+    if (formState.timeRange !== String(originalEntities.experiment_time_range || "")) {
+      patch.experiment_time_range = formState.timeRange;
+    }
 
     return patch;
   };
 
-  const onApprove = () => {
-    if (isEntityReview && !provinceGb.trim()) {
-      window.alert("省份为必填项，请先选择省。");
+  const handleResolve = (action: "approve" | "reject" | "terminate") => {
+    const provinceValue = formState.province.trim();
+    if (isEntityReview && !provinceValue) {
+      setValidationError("省份为必填项，请先补全后再提交。");
+      setIsDrawerOpen(true);
       return;
     }
-    if (isEntityReview) {
-      resolve({
-        approved: true,
-        feedback: feedback || "人工审核通过",
-        entities_patch: buildEntitiesPatch(),
-      });
-      return;
-    }
-    resolve({ approved: true, feedback: feedback || "人工审批通过" });
-  };
 
-  const onReject = () => {
-    if (isEntityReview) {
-      resolve({
-        approved: false,
-        feedback: feedback || "人工审核未通过，请按建议补充",
-        entities_patch: buildEntitiesPatch(),
-      });
-      return;
-    }
-    resolve({ approved: false, feedback: feedback || "人工审批驳回，请补充信息" });
-  };
+    setValidationError("");
+    setSubmittingAction(action);
 
-  const onTerminate = () => {
-    if (isEntityReview) {
-      resolve({
-        action: "terminate",
-        terminate: true,
-        approved: false,
-        feedback: feedback || "用户主动结束本次推理",
-        entities_patch: buildEntitiesPatch(),
-      });
-      return;
-    }
-    resolve({
-      action: "terminate",
-      terminate: true,
-      approved: false,
-      feedback: feedback || "用户主动结束本次推理",
+    const payload =
+      action === "terminate"
+        ? {
+            action: "terminate",
+            terminate: true,
+            approved: false,
+            feedback: formState.feedback || "用户主动结束本次推理",
+            ...(isEntityReview ? { entities_patch: buildEntitiesPatch() } : {}),
+          }
+        : {
+            approved: action === "approve",
+            feedback:
+              formState.feedback ||
+              (action === "approve" ? "人工审核通过" : "人工审核未通过，请按建议补充"),
+            ...(isEntityReview ? { entities_patch: buildEntitiesPatch() } : {}),
+          };
+
+    void Promise.resolve(resolve(payload)).finally(() => {
+      setSubmittingAction(null);
     });
   };
 
+  const resourceHint = resourcesLoading
+    ? "正在准备行政区与模型资源..."
+    : resourcesError
+      ? resourcesError
+      : isEntityReview
+        ? "已进入人工审核，请打开面板完成复核。"
+        : "流程等待人工确认。";
+
   return (
-    <div className="hitl-card">
-      <div className="hitl-card-header">
-        <span className="hitl-card-badge">HITL</span>
-        <span className="hitl-card-title">人工审核</span>
-      </div>
-      <div className="hitl-card-task">{task}</div>
-      {details ? <div className="hitl-card-details">{details}</div> : null}
+    <>
+      <div className="hitl-card">
+        <div className="hitl-card-header">
+          <div className="hitl-card-heading">
+            <span className="hitl-card-badge">HITL</span>
+            <span className="hitl-card-title">人工审核</span>
+          </div>
+          <span className="hitl-status-pill">待处理</span>
+        </div>
 
-      {!!requiredFields.length && (
-        <div className="hitl-card-section">
-          <div className="hitl-card-label">必填字段</div>
-          <div className="hitl-card-tags">
-            {requiredFields.map((f) => (
-              <span key={f} className="hitl-tag">{f}</span>
+        <div className="hitl-card-task">{task}</div>
+        <div className="hitl-card-summary">{resourceHint}</div>
+
+        {summaryLines.length ? (
+          <div className="hitl-card-meta">
+            {summaryLines.map((line) => (
+              <span key={line} className="hitl-meta-chip">
+                {line}
+              </span>
             ))}
           </div>
-        </div>
-      )}
+        ) : null}
 
-      {!!missingFields.length && (
-        <div className="hitl-card-section">
-          <div className="hitl-card-label">缺失字段</div>
+        {!!(requiredFields.length || missingFields.length) && (
           <div className="hitl-card-tags">
-            {missingFields.map((f) => (
-              <span key={f} className="hitl-tag missing">{f}</span>
+            {requiredFields.map((field) => (
+              <span key={field} className="hitl-tag">
+                {field}
+              </span>
+            ))}
+            {missingFields.map((field) => (
+              <span key={`missing-${field}`} className="hitl-tag missing">
+                缺失 {field}
+              </span>
             ))}
           </div>
-        </div>
-      )}
+        )}
 
-      {isEntityReview && (
-        <div className="hitl-card-section">
-          <div className="hitl-card-label">可修改后提交</div>
-          <div className="hitl-form-grid">
-            <div className="hitl-field">
-              <label className="hitl-field-label">完整地点（full_name）</label>
-              <input
-                className="hitl-input"
-                placeholder="请输入完整地点"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-              />
-            </div>
-            <div className="hitl-field">
-              <label className="hitl-field-label">
-                <span className="hitl-required-mark">*</span>
-                省
-              </label>
-              <select
-                className="hitl-input"
-                value={provinceGb}
-                onChange={(e) => {
-                  const gb = e.target.value;
-                  const hit = provinceOptions.find((p) => p.gb === gb);
-                  setProvinceGb(gb);
-                  setProvince(hit?.name || "");
-                  setCityGb("");
-                  setCity("");
-                  setCountyGb("");
-                  setCounty("");
-                }}
-                disabled={resourcesLoading}
-              >
-                <option value="">请选择省</option>
-                {provinceOptions.map((p) => (
-                  <option key={p.gb} value={p.gb}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="hitl-field">
-              <label className="hitl-field-label">市（可选）</label>
-              <select
-                className="hitl-input"
-                value={cityGb}
-                onChange={(e) => {
-                  const gb = e.target.value;
-                  const hit = cityOptions.find((c) => c.gb === gb);
-                  setCityGb(gb);
-                  setCity(hit?.name || "");
-                  setCountyGb("");
-                  setCounty("");
-                }}
-                disabled={!provinceGb || resourcesLoading}
-              >
-                <option value="">{provinceGb ? "请选择市（可选）" : "请先选择省"}</option>
-                {cityOptions.map((c) => (
-                  <option key={c.gb} value={c.gb}>{c.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="hitl-field">
-              <label className="hitl-field-label">县（可选）</label>
-              <select
-                className="hitl-input"
-                value={countyGb}
-                onChange={(e) => {
-                  const gb = e.target.value;
-                  const hit = countyOptions.find((c) => c.gb === gb);
-                  setCountyGb(gb);
-                  setCounty(hit?.name || "");
-                }}
-                disabled={!provinceGb || resourcesLoading}
-              >
-                <option value="">{provinceGb ? "请选择县（可选）" : "请先选择省"}</option>
-                {countyOptions.map((c) => (
-                  <option key={c.gb} value={c.gb}>{c.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="hitl-field">
-              <label className="hitl-field-label">模型</label>
-              <select
-                className="hitl-input"
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                disabled={resourcesLoading}
-              >
-                {!modelOptions.length && <option value="">暂无可用模型</option>}
-                {modelOptions.map((m) => (
-                  <option key={m.value} value={m.value}>{m.value}</option>
-                ))}
-              </select>
-            </div>
-            <div className="hitl-field">
-              <label className="hitl-field-label">参数（逗号分隔）</label>
-              <input
-                className="hitl-input"
-                placeholder="如 Cab, LAI, Cw"
-                value={parametersText}
-                onChange={(e) => setParametersText(e.target.value)}
-              />
-            </div>
-            <div className="hitl-field">
-              <label className="hitl-field-label">植被类型（可选）</label>
-              <input
-                className="hitl-input"
-                placeholder="如 草原"
-                value={vegetationType}
-                onChange={(e) => setVegetationType(e.target.value)}
-              />
-            </div>
-            <div className="hitl-field">
-              <label className="hitl-field-label">实验时间范围（可选）</label>
-              <input
-                className="hitl-input"
-                placeholder="如 2020-2021"
-                value={timeRange}
-                onChange={(e) => setTimeRange(e.target.value)}
-              />
-            </div>
-          </div>
+        <div className="hitl-card-inline-actions">
+          <button type="button" className="hitl-btn primary" onClick={() => setIsDrawerOpen(true)}>
+            打开审核面板
+          </button>
+          <span className="hitl-inline-note">处理中断前，聊天输入会暂时锁定。</span>
         </div>
-      )}
-
-      {!!entitySummary && (
-        <div className="hitl-card-section">
-          <div className="hitl-card-label">当前抽取</div>
-          <pre className="hitl-card-json">{entitySummary}</pre>
-        </div>
-      )}
-
-      {!isEntityReview && !!geoContextSummary && (
-        <div className="hitl-card-section">
-          <div className="hitl-card-label">待审批内容</div>
-          <pre className="hitl-card-json">{geoContextSummary}</pre>
-        </div>
-      )}
-
-      <div className="hitl-card-section">
-        <div className="hitl-card-label">审核意见</div>
-        <textarea
-          className="hitl-textarea"
-          placeholder="可填写修改建议或审批意见"
-          value={feedback}
-          onChange={(e) => setFeedback(e.target.value)}
-          rows={3}
-        />
       </div>
 
-      <div className="hitl-card-actions">
-        <button className="hitl-btn approve" onClick={onApprove}>通过并提交</button>
-        <button className="hitl-btn reject" onClick={onReject}>驳回并提交</button>
-        <button className="hitl-btn terminate" onClick={onTerminate}>结束本次推理</button>
-      </div>
-    </div>
+      {isDrawerOpen ? (
+        <>
+          <button
+            type="button"
+            className="hitl-drawer-backdrop"
+            aria-label="关闭人工审核面板"
+            onClick={() => setIsDrawerOpen(false)}
+          />
+          <aside className="hitl-drawer" aria-label="人工审核面板">
+            <div className="hitl-drawer-header">
+              <div>
+                <div className="hitl-card-heading">
+                  <span className="hitl-card-badge">HITL</span>
+                  <span className="hitl-card-title">人工审核</span>
+                </div>
+                <div className="hitl-drawer-task">{task}</div>
+                <div className="hitl-drawer-subtitle">
+                  {missingFields.length
+                    ? `当前仍有 ${missingFields.length} 个关键字段待确认。`
+                    : "请确认信息后继续推理流程。"}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="hitl-drawer-close"
+                onClick={() => setIsDrawerOpen(false)}
+                disabled={Boolean(submittingAction)}
+              >
+                关闭
+              </button>
+            </div>
+
+            <div className="hitl-drawer-body">
+              {!!(requiredFields.length || missingFields.length) && (
+                <section className="hitl-section-card">
+                  <div className="hitl-card-label">需优先关注</div>
+                  <div className="hitl-card-tags">
+                    {requiredFields.map((field) => (
+                      <span key={field} className="hitl-tag">
+                        {field}
+                      </span>
+                    ))}
+                    {missingFields.map((field) => (
+                      <span key={`drawer-missing-${field}`} className="hitl-tag missing">
+                        缺失 {field}
+                      </span>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {resourcesError ? (
+                <section className="hitl-section-card hitl-section-warning">
+                  <div className="hitl-card-label">资源提示</div>
+                  <div className="hitl-inline-note">{resourcesError}</div>
+                </section>
+              ) : null}
+
+              {isEntityReview ? (
+                <section className="hitl-section-card">
+                  <div className="hitl-card-label">修正并提交</div>
+                  <div className="hitl-form-grid">
+                    <div className="hitl-field hitl-field-span-2">
+                      <label className="hitl-field-label">完整地点（full_name）</label>
+                      <input
+                        className="hitl-input"
+                        placeholder="请输入完整地点"
+                        value={formState.fullName}
+                        onChange={(event) => updateFormField("fullName", event.target.value)}
+                      />
+                    </div>
+
+                    <div className="hitl-field">
+                      <label className="hitl-field-label">
+                        <span className="hitl-required-mark">*</span>
+                        省
+                      </label>
+                      {resourcesError ? (
+                        <input
+                          className="hitl-input"
+                          placeholder="请输入省份"
+                          value={formState.province}
+                          onChange={(event) => updateFormField("province", event.target.value)}
+                        />
+                      ) : (
+                        <select
+                          className="hitl-input"
+                          value={formState.provinceGb}
+                          onChange={(event) => {
+                            const gb = event.target.value;
+                            const hit = provinceOptions.find((option) => option.gb === gb);
+                            setFormState((prev) => ({
+                              ...prev,
+                              provinceGb: gb,
+                              province: hit?.name || "",
+                              cityGb: "",
+                              city: "",
+                              countyGb: "",
+                              county: "",
+                            }));
+                          }}
+                          disabled={resourcesLoading}
+                        >
+                          <option value="">{resourcesLoading ? "加载省份中..." : "请选择省"}</option>
+                          {provinceOptions.map((option) => (
+                            <option key={option.gb} value={option.gb}>
+                              {option.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+
+                    <div className="hitl-field">
+                      <label className="hitl-field-label">模型</label>
+                      {resourcesError ? (
+                        <input
+                          className="hitl-input"
+                          placeholder="请输入模型名称"
+                          value={formState.model}
+                          onChange={(event) => updateFormField("model", event.target.value)}
+                        />
+                      ) : (
+                        <select
+                          className="hitl-input"
+                          value={formState.model}
+                          onChange={(event) => updateFormField("model", event.target.value)}
+                          disabled={resourcesLoading}
+                        >
+                          {!modelOptions.length ? <option value="">暂无可用模型</option> : null}
+                          {modelOptions.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+
+                    <div className="hitl-field">
+                      <label className="hitl-field-label">市（可选）</label>
+                      {resourcesError ? (
+                        <input
+                          className="hitl-input"
+                          placeholder="请输入城市"
+                          value={formState.city}
+                          onChange={(event) => updateFormField("city", event.target.value)}
+                        />
+                      ) : (
+                        <select
+                          className="hitl-input"
+                          value={formState.cityGb}
+                          onChange={(event) => {
+                            const gb = event.target.value;
+                            const hit = cityOptions.find((option) => option.gb === gb);
+                            setFormState((prev) => ({
+                              ...prev,
+                              cityGb: gb,
+                              city: hit?.name || "",
+                              countyGb: "",
+                              county: "",
+                            }));
+                          }}
+                          disabled={!formState.provinceGb || resourcesLoading}
+                        >
+                          <option value="">
+                            {!formState.provinceGb ? "请先选择省" : resourcesLoading ? "加载城市中..." : "请选择市（可选）"}
+                          </option>
+                          {cityOptions.map((option) => (
+                            <option key={option.gb} value={option.gb}>
+                              {option.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+
+                    <div className="hitl-field">
+                      <label className="hitl-field-label">县（可选）</label>
+                      {resourcesError ? (
+                        <input
+                          className="hitl-input"
+                          placeholder="请输入区县"
+                          value={formState.county}
+                          onChange={(event) => updateFormField("county", event.target.value)}
+                        />
+                      ) : (
+                        <select
+                          className="hitl-input"
+                          value={formState.countyGb}
+                          onChange={(event) => {
+                            const gb = event.target.value;
+                            const hit = countyOptions.find((option) => option.gb === gb);
+                            setFormState((prev) => ({
+                              ...prev,
+                              countyGb: gb,
+                              county: hit?.name || "",
+                            }));
+                          }}
+                          disabled={!formState.provinceGb || resourcesLoading}
+                        >
+                          <option value="">
+                            {!formState.provinceGb ? "请先选择省" : resourcesLoading ? "加载区县中..." : "请选择县（可选）"}
+                          </option>
+                          {countyOptions.map((option) => (
+                            <option key={option.gb} value={option.gb}>
+                              {option.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+
+                    <div className="hitl-field">
+                      <label className="hitl-field-label">参数（逗号分隔）</label>
+                      <input
+                        className="hitl-input"
+                        placeholder="如 Cab, LAI, Cw"
+                        value={formState.parametersText}
+                        onChange={(event) => updateFormField("parametersText", event.target.value)}
+                      />
+                    </div>
+
+                    <div className="hitl-field">
+                      <label className="hitl-field-label">植被类型（可选）</label>
+                      <input
+                        className="hitl-input"
+                        placeholder="如 农作物"
+                        value={formState.vegetationType}
+                        onChange={(event) => updateFormField("vegetationType", event.target.value)}
+                      />
+                    </div>
+
+                    <div className="hitl-field">
+                      <label className="hitl-field-label">实验时间范围（可选）</label>
+                      <input
+                        className="hitl-input"
+                        placeholder="如 2020-2021"
+                        value={formState.timeRange}
+                        onChange={(event) => updateFormField("timeRange", event.target.value)}
+                      />
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
+              <section className="hitl-section-card">
+                <div className="hitl-card-label">审核意见</div>
+                <textarea
+                  className="hitl-textarea"
+                  placeholder="可填写修改建议、审批意见或终止原因"
+                  value={formState.feedback}
+                  rows={4}
+                  onChange={(event) => updateFormField("feedback", event.target.value)}
+                />
+              </section>
+
+              {!!entitySummary && (
+                <section className="hitl-section-card">
+                  <button
+                    type="button"
+                    className="hitl-toggle"
+                    onClick={() => setShowEntityJson((prev) => !prev)}
+                  >
+                    {showEntityJson ? "收起当前抽取" : "查看当前抽取"}
+                  </button>
+                  {showEntityJson ? <pre className="hitl-card-json">{entitySummary}</pre> : null}
+                </section>
+              )}
+
+              {!!geoContextSummary && (
+                <section className="hitl-section-card">
+                  <button
+                    type="button"
+                    className="hitl-toggle"
+                    onClick={() => setShowContextJson((prev) => !prev)}
+                  >
+                    {showContextJson ? "收起上下文" : "查看待审批上下文"}
+                  </button>
+                  {showContextJson ? <pre className="hitl-card-json">{geoContextSummary}</pre> : null}
+                </section>
+              )}
+            </div>
+
+            <div className="hitl-drawer-footer">
+              {validationError ? <div className="hitl-validation">{validationError}</div> : null}
+              <div className="hitl-footer-actions">
+                <button
+                  type="button"
+                  className="hitl-btn ghost"
+                  onClick={() => setIsDrawerOpen(false)}
+                  disabled={Boolean(submittingAction)}
+                >
+                  稍后处理
+                </button>
+                <button
+                  type="button"
+                  className="hitl-btn terminate"
+                  onClick={() => handleResolve("terminate")}
+                  disabled={Boolean(submittingAction)}
+                >
+                  {submittingAction === "terminate" ? "提交中..." : "结束本次推理"}
+                </button>
+                <button
+                  type="button"
+                  className="hitl-btn reject"
+                  onClick={() => handleResolve("reject")}
+                  disabled={Boolean(submittingAction)}
+                >
+                  {submittingAction === "reject" ? "提交中..." : "驳回并提交"}
+                </button>
+                <button
+                  type="button"
+                  className="hitl-btn approve"
+                  onClick={() => handleResolve("approve")}
+                  disabled={Boolean(submittingAction)}
+                >
+                  {submittingAction === "approve" ? "提交中..." : "通过并继续"}
+                </button>
+              </div>
+            </div>
+          </aside>
+        </>
+      ) : null}
+    </>
   );
 };
 

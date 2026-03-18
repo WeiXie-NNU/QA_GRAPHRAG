@@ -1,13 +1,17 @@
-import { lazy, Suspense, useCallback, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { CopilotKit } from "@copilotkit/react-core";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { CopilotKit, useCopilotChatInternal } from "@copilotkit/react-core";
+import { randomUUID } from "@copilotkit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import "@copilotkit/react-ui/styles.css";
 import "./App.css";
 
+import { ChatComposer } from "./components/chat/ChatComposer";
+import { ModelSelector } from "./components/chat/ModelSelector";
+import { WelcomeScreen } from "./components/chat/WelcomeScreen";
 import { Sidebar } from "./components/sidebar";
 import { AgentProvider, DrawerProvider, useAuth, useDrawer } from "./contexts";
-import { RUNTIME_URL } from "./lib/consts";
+import { CHAT_SUGGESTIONS, RUNTIME_URL } from "./lib/consts";
 import type { AgentType } from "./lib/consts";
 import {
   addThread,
@@ -46,11 +50,12 @@ function App() {
 
 function AppContent() {
   const { threadId: urlThreadId } = useParams<{ threadId?: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const threadId = urlThreadId!;
   const { closeDrawer } = useDrawer();
-  const { currentUser, users, switchUser, logout } = useAuth();
+  const { currentUser, logout } = useAuth();
 
   const agent: AgentType = "test";
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -69,16 +74,32 @@ function AppContent() {
     () => threads.find((item) => item.id === threadId) ?? null,
     [threadId, threads],
   );
+  const routeState = location.state as { isNewThread?: boolean } | null;
 
   const clientStateQuery = useQuery({
     queryKey: ["thread-client-state", currentUserId, agent, threadId],
     queryFn: () => getThreadClientState(threadId, agent),
-    enabled: Boolean(threadId) && !threadInList,
+    enabled: Boolean(threadId),
     staleTime: 30_000,
   });
+  const hasMeaningfulAgentState =
+    (
+      Array.isArray(clientStateQuery.data?.agentState?.steps) &&
+      clientStateQuery.data.agentState.steps.length > 0
+    ) ||
+    Boolean(clientStateQuery.data?.agentState?.local_rag_result) ||
+    Boolean(clientStateQuery.data?.agentState?.global_rag_result);
+  const hasPersistedConversationData =
+    hasMeaningfulAgentState ||
+    Number(clientStateQuery.data?.message_count || 0) > 0;
 
+  const isRouteMarkedNewThread =
+    routeState?.isNewThread === true &&
+    !hasPersistedConversationData;
+  const threadExists = hasPersistedConversationData;
   const isNewThread =
     pendingNewThreadId === threadId ||
+    isRouteMarkedNewThread ||
     (!threadInList && clientStateQuery.data?.thread_exists === false);
 
   const invalidateThreads = useCallback(() => {
@@ -89,7 +110,7 @@ function AppContent() {
     const newThreadId = createNewThreadId();
     closeDrawer();
     setPendingNewThreadId(newThreadId);
-    navigate(`/chat/${newThreadId}`, { replace: true });
+    navigate(`/chat/${newThreadId}`, { replace: true, state: { isNewThread: true } });
   }, [closeDrawer, navigate]);
 
   const handleSwitchThread = useCallback((id: string) => {
@@ -128,7 +149,7 @@ function AppContent() {
     })();
   }, [agent, currentUserId, invalidateThreads, queryClient]);
 
-  const handleFirstMessage = useCallback((message: string) => {
+  const handleFirstMessage = useCallback(async (message: string) => {
     if (!isNewThread) return;
 
     const trimmed = message.trim().replace(/\n/g, " ");
@@ -143,33 +164,22 @@ function AppContent() {
 
     upsertThreadInListCache(queryClient, currentUserId, agent, threadMeta);
     setPendingNewThreadId(null);
+    navigate(`/chat/${threadId}`, { replace: true });
 
-    void (async () => {
-      try {
-        await addThread(threadMeta);
-      } finally {
-        invalidateThreads();
-      }
-    })();
-  }, [agent, currentUserId, invalidateThreads, isNewThread, queryClient, threadId]);
-
-  const handleSwitchAccount = useCallback((userId: string) => {
-    if (userId === currentUserId) {
-      return;
+    try {
+      await addThread(threadMeta);
+    } finally {
+      invalidateThreads();
     }
-
-    closeDrawer();
-    setPendingNewThreadId(null);
-    switchUser(userId);
-    navigate("/", { replace: true });
-  }, [closeDrawer, currentUserId, navigate, switchUser]);
+  }, [agent, currentUserId, invalidateThreads, isNewThread, navigate, queryClient, threadId]);
 
   const handleLogout = useCallback(() => {
     closeDrawer();
     setPendingNewThreadId(null);
+    queryClient.clear();
     logout();
-    navigate("/login", { replace: true });
-  }, [closeDrawer, logout, navigate]);
+    navigate("/", { replace: true });
+  }, [closeDrawer, logout, navigate, queryClient]);
 
   const handleToggleSidebar = useCallback(() => {
     setSidebarOpen((prev) => !prev);
@@ -185,10 +195,8 @@ function AppContent() {
         currentThreadId={threadId}
         threads={threads}
         currentUser={currentUser}
-        users={users}
         onNewChat={handleNewChat}
         onSwitchThread={handleSwitchThread}
-        onSwitchUser={handleSwitchAccount}
         onLogout={handleLogout}
         onDeleteThread={handleDeleteThread}
         onRenameThread={handleRenameThread}
@@ -210,15 +218,19 @@ function AppContent() {
           threadId={threadId}
         >
           <AgentProvider agentName={agent}>
-            <Suspense fallback={<ChatAreaFallback />}>
-              <LazyChatArea
-                agent={agent}
-                threadId={threadId}
-                userId={currentUserId}
-                onFirstMessage={handleFirstMessage}
-                isNewThread={isNewThread}
-              />
-            </Suspense>
+            {isNewThread ? (
+              <NewThreadStage agent={agent} onSend={handleFirstMessage} />
+            ) : (
+              <Suspense fallback={<ChatAreaFallback />}>
+                <LazyChatArea
+                  agent={agent}
+                  threadId={threadId}
+                  userId={currentUserId}
+                  shouldLoadHistory={threadExists && !isNewThread}
+                  key={`${currentUserId}:${threadId}:${threadExists ? "known" : "unknown"}`}
+                />
+              </Suspense>
+            )}
           </AgentProvider>
         </CopilotKit>
       </main>
@@ -237,6 +249,123 @@ function RightPanelContent() {
     <Suspense fallback={null}>
       <LazyRightPanel isOpen={isOpen} content={content} onClose={closeDrawer} />
     </Suspense>
+  );
+}
+
+function NewThreadStage({
+  agent,
+  onSend,
+}: {
+  agent: AgentType;
+  onSend: (message: string) => Promise<void>;
+}) {
+  const suggestions = CHAT_SUGGESTIONS[agent] || [];
+  const [draft, setDraft] = useState("");
+  const [pendingFirstMessage, setPendingFirstMessage] = useState<{ id: string; text: string } | null>(null);
+  const submittedFirstMessageIdRef = useRef<string | null>(null);
+  const {
+    messages,
+    sendMessage,
+    isLoading,
+    stopGeneration,
+    agent: connectedAgent,
+  } = useCopilotChatInternal();
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const textarea = document.querySelector(".copilotKitInput textarea") as HTMLTextAreaElement | null;
+      textarea?.focus();
+    }, 100);
+
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingFirstMessage) {
+      return;
+    }
+
+    const userMessageAppeared = (messages as any[] | undefined)?.some(
+      (message) =>
+        message?.role === "user" &&
+        String(message?.id ?? "") === pendingFirstMessage.id
+    );
+
+    if (!userMessageAppeared) {
+      return;
+    }
+
+    if (submittedFirstMessageIdRef.current === pendingFirstMessage.id) {
+      return;
+    }
+    submittedFirstMessageIdRef.current = pendingFirstMessage.id;
+
+    void onSend(pendingFirstMessage.text).catch((error) => {
+      console.error("创建首条消息线程失败:", error);
+    });
+    setPendingFirstMessage(null);
+  }, [messages, onSend, pendingFirstMessage]);
+
+  const handleSend = useCallback(async (message: string) => {
+    const trimmed = message.trim();
+    if (!trimmed || !connectedAgent || pendingFirstMessage) {
+      return;
+    }
+
+    const firstMessageId = randomUUID();
+    submittedFirstMessageIdRef.current = null;
+    setPendingFirstMessage({ id: firstMessageId, text: trimmed });
+
+    void sendMessage({
+      id: firstMessageId,
+      role: "user",
+      content: trimmed,
+    }).catch((error) => {
+      setPendingFirstMessage((current) =>
+        current?.id === firstMessageId ? null : current
+      );
+      setDraft(trimmed);
+      console.error("发送首条消息失败:", error);
+    });
+  }, [connectedAgent, pendingFirstMessage, sendMessage]);
+
+  return (
+    <>
+      <header className="chat-header">
+        <div className="chat-header-left">
+          <ModelSelector />
+        </div>
+      </header>
+
+      <div className="chat-container with-welcome">
+        <div className="new-thread-stage-layout">
+          <WelcomeScreen visible={true} variant="inline" />
+          <div className="new-thread-stage-composer">
+            <ChatComposer
+              disabled={!connectedAgent || Boolean(pendingFirstMessage)}
+              inProgress={isLoading}
+              value={draft}
+              onValueChange={setDraft}
+              onSend={handleSend}
+              onStop={stopGeneration}
+              placeholder="询问任何问题"
+            />
+          </div>
+          {suggestions.length > 0 && (
+            <div className="new-thread-stage-suggestions">
+              <div className="suggestions-grid">
+                {suggestions.map((suggestion, index) => (
+                  <button key={index} className="suggestion-item" onClick={() => setDraft(suggestion)}>
+                    <span className="suggestion-icon">💡</span>
+                    <span className="suggestion-text">{suggestion}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   );
 }
 

@@ -225,6 +225,7 @@ async def append_thread_turn(
     user_content: str,
     assistant_message_id: str,
     assistant_content: str,
+    user_id: str = DEFAULT_USER_ID,
     db_path: Optional[str] = None,
 ) -> None:
     path = db_path or DEFAULT_DB_PATH
@@ -248,17 +249,39 @@ async def append_thread_turn(
             )
             """
         )
+        async with db_conn.execute("PRAGMA table_info(thread_metadata)") as cursor:
+            columns = await cursor.fetchall()
+        column_names = {str(column[1]) for column in columns}
+        if "user_id" not in column_names:
+            await db_conn.execute(
+                "ALTER TABLE thread_metadata ADD COLUMN user_id TEXT NOT NULL DEFAULT 'demo'"
+            )
         await setup_thread_message_tables(db_conn)
 
         await db_conn.execute(
             """
-            INSERT INTO thread_metadata (thread_id, name, agent, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO thread_metadata (thread_id, name, agent, user_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(thread_id) DO UPDATE SET
                 agent = excluded.agent,
+                user_id = CASE
+                    WHEN thread_metadata.user_id IS NULL
+                        OR thread_metadata.user_id = ''
+                        OR thread_metadata.user_id = ?
+                        THEN excluded.user_id
+                    ELSE thread_metadata.user_id
+                END,
                 updated_at = excluded.updated_at
             """,
-            (thread_id, f"历史对话 {thread_id[:8]}", agent or "test", now, now),
+            (
+                thread_id,
+                f"历史对话 {thread_id[:8]}",
+                agent or "test",
+                user_id or DEFAULT_USER_ID,
+                now,
+                now,
+                DEFAULT_USER_ID,
+            ),
         )
 
         await db_conn.execute(

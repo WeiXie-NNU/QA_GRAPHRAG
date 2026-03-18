@@ -348,7 +348,10 @@ const AssistantMessageBase: React.FC<AssistantMessageBaseProps> = ({
   }
 
   return (
-    <div ref={activationRef} className="assistant-message-wrapper">
+    <div
+      ref={activationRef}
+      className="copilotKitMessage copilotKitAssistantMessage assistant-message-wrapper"
+    >
       {/* 内容区域 */}
       <div className="assistant-content">
         {/* 进度条（如果有智能体状态） */}

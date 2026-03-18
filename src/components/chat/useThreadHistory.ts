@@ -116,14 +116,15 @@ export function useThreadHistory({
   userId,
   enabled,
 }: UseThreadHistoryOptions) {
+  const isQueryEnabled = Boolean(enabled && threadId);
   const cached = useMemo(
-    () => (enabled && threadId && userId ? readHistoryCache(userId, threadId) : null),
-    [enabled, threadId, userId],
+    () => (isQueryEnabled && userId ? readHistoryCache(userId, threadId) : null),
+    [isQueryEnabled, threadId, userId],
   );
 
   const query = useInfiniteQuery({
     queryKey: ["thread-history", userId, agent, threadId],
-    enabled: enabled && !!threadId,
+    enabled: isQueryEnabled,
     initialPageParam: {
       beforeId: null as number | null,
       limit: INITIAL_HISTORY_PAGE_SIZE,
@@ -168,7 +169,7 @@ export function useThreadHistory({
     [query.data?.pages],
   );
 
-  const hasOlderHistory = Boolean(query.hasNextPage);
+  const hasOlderHistory = isQueryEnabled && Boolean(query.hasNextPage);
 
   useEffect(() => {
     if (!threadId || historyMessages.length === 0) return;
@@ -185,10 +186,10 @@ export function useThreadHistory({
   return {
     historyMessages,
     hasOlderHistory,
-    isHistoryLoading: query.isPending && historyMessages.length === 0,
-    isLoadingOlderHistory: query.isFetchingNextPage,
+    isHistoryLoading: isQueryEnabled && query.isPending && historyMessages.length === 0,
+    isLoadingOlderHistory: isQueryEnabled && query.isFetchingNextPage,
     loadOlderHistory: () => {
-      if (!query.hasNextPage || query.isFetchingNextPage) {
+      if (!isQueryEnabled || !query.hasNextPage || query.isFetchingNextPage) {
         return Promise.resolve();
       }
       return query.fetchNextPage().then(() => undefined);

@@ -29,7 +29,7 @@ def askAI(USER_PROMPT,SYSTEM_PROMPT = None):
 
 
 def geocoding_CN(address,city=None):
-    """中国地址地理编码"""
+    """中国地址地理编码，采用高德地图API"""
     import requests
     url = "https://restapi.amap.com/v3/geocode/geo"
     params = {
@@ -44,3 +44,4 @@ def geocoding_CN(address,city=None):
         return location  # 返回经纬度字符串 "lng,lat"
     else:
         return None
+    
