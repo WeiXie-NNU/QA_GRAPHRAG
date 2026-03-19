@@ -30,6 +30,86 @@ function getMessageKey(message: Message, index: number): string {
   return `message:${index}:${String(message.role)}:${String((message as any)?.content ?? "")}`;
 }
 
+function getComparableMessageId(message: Message): string {
+  const rawId = (message as any)?.id;
+  return rawId == null ? "" : String(rawId);
+}
+
+function buildAssistantTurnKey(message: Message, previousUserMessageId: string): string {
+  const rawId = getComparableMessageId(message);
+  if (rawId.startsWith("assistant:")) {
+    return `assistant-turn:${rawId.slice("assistant:".length)}`;
+  }
+
+  if (previousUserMessageId) {
+    return `assistant-turn:${previousUserMessageId}`;
+  }
+
+  if (rawId) {
+    return `assistant:${rawId}`;
+  }
+
+  return `assistant:${String((message as any)?.content ?? "")}`;
+}
+
+function buildMergeRows(groups: Message[][]): Array<{ message: Message; mergeKey: string }> {
+  const rows: Array<{ message: Message; mergeKey: string }> = [];
+
+  groups.forEach((group) => {
+    let previousUserMessageId = "";
+
+    group.forEach((message, index) => {
+      if (!message) {
+        return;
+      }
+
+      const rawId = getComparableMessageId(message);
+      if (message.role === "user") {
+        previousUserMessageId = rawId || `user-index:${index}`;
+        rows.push({
+          message,
+          mergeKey: rawId ? `user:${rawId}` : `user:${index}:${String((message as any)?.content ?? "")}`,
+        });
+        return;
+      }
+
+      if (message.role === "assistant") {
+        rows.push({
+          message,
+          mergeKey: buildAssistantTurnKey(message, previousUserMessageId),
+        });
+        return;
+      }
+
+      rows.push({
+        message,
+        mergeKey: rawId ? `${String(message.role)}:${rawId}` : `${String(message.role)}:${index}`,
+      });
+    });
+  });
+
+  return rows;
+}
+
+function mergeMessageGroups(...groups: Message[][]): Message[] {
+  const merged: Message[] = [];
+  const indexByStableId = new Map<string, number>();
+  const rows = buildMergeRows(groups);
+
+  rows.forEach(({ message, mergeKey }) => {
+    const existingIndex = indexByStableId.get(mergeKey);
+    if (existingIndex != null) {
+      merged[existingIndex] = message;
+      return;
+    }
+
+    indexByStableId.set(mergeKey, merged.length);
+    merged.push(message);
+  });
+
+  return merged;
+}
+
 function hasTextContent(content: unknown): boolean {
   if (typeof content === "string") {
     return content.trim().length > 0;
@@ -89,23 +169,10 @@ function isRenderableMessage(
   return false;
 }
 
-function mergeMessageGroups(...groups: Message[][]): Message[] {
-  const order: string[] = [];
-  const latestById = new Map<string, Message>();
-
-  groups.forEach((group) => {
-    group.forEach((message, index) => {
-      const messageKey = getMessageKey(message, index);
-      if (!latestById.has(messageKey)) {
-        order.push(messageKey);
-      }
-      latestById.set(messageKey, message);
-    });
-  });
-
-  return order
-    .map((messageKey) => latestById.get(messageKey))
-    .filter((message): message is Message => Boolean(message));
+function filterRenderableMessages(messages: Message[], inProgress: boolean): Message[] {
+  return messages.filter((message, index) =>
+    isRenderableMessage(message, index, messages.length, inProgress)
+  );
 }
 
 type VirtualizedMessagesProps = MessagesProps & {
@@ -114,7 +181,6 @@ type VirtualizedMessagesProps = MessagesProps & {
   hasOlderHistory?: boolean;
   isLoadingOlderHistory?: boolean;
   initialMessages?: string | string[];
-  interruptElement?: React.ReactNode;
   onLoadOlderHistory?: () => void | Promise<void>;
   threadKey?: string;
 };
@@ -272,14 +338,16 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
   hasOlderHistory = false,
   isLoadingOlderHistory = false,
   initialMessages: initialContent,
-  interruptElement,
   onLoadOlderHistory,
   threadKey = "",
 }) => {
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const deferredLiveMessages = useDeferredValue(liveMessages);
-  const initialMessages = useMemo(() => makeInitialMessages(initialContent), [initialContent]);
+  const initialMessages = useMemo(
+    () => filterRenderableMessages(makeInitialMessages(initialContent), false),
+    [initialContent]
+  );
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [firstItemIndex, setFirstItemIndex] = useState(FIRST_ITEM_INDEX_BASE);
   const [renderedRange, setRenderedRange] = useState({ startIndex: 0, endIndex: -1 });
@@ -293,23 +361,27 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
     () => (inProgress && !isAtBottom ? deferredLiveMessages : liveMessages),
     [deferredLiveMessages, inProgress, isAtBottom, liveMessages]
   );
+  const renderableHistoryMessages = useMemo(
+    () => filterRenderableMessages(historyMessages, false),
+    [historyMessages]
+  );
+  const renderableSourceMessages = useMemo(
+    () => filterRenderableMessages(sourceMessages, inProgress),
+    [inProgress, sourceMessages]
+  );
   const messages = useMemo(
-    () => mergeMessageGroups(initialMessages, historyMessages, sourceMessages),
-    [historyMessages, initialMessages, sourceMessages]
+    () => mergeMessageGroups(initialMessages, renderableHistoryMessages, renderableSourceMessages),
+    [initialMessages, renderableHistoryMessages, renderableSourceMessages]
   );
-  const historyCount = historyMessages.length;
-  const renderableMessages = useMemo(
-    () => messages.filter((message, index) => isRenderableMessage(message, index, messages.length, inProgress)),
-    [inProgress, messages]
-  );
+  const historyCount = renderableHistoryMessages.length;
   const messageRows = useMemo<MessageRowData[]>(
     () =>
-      renderableMessages.map((message, index) => ({
+      messages.map((message, index) => ({
         message,
         messageKey: getMessageKey(message, index),
         relativeIndex: index,
       })),
-    [renderableMessages]
+    [messages]
   );
   const tailKey = messageRows[messageRows.length - 1]?.messageKey ?? "";
   const renderedCount =
@@ -317,7 +389,7 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
       ? renderedRange.endIndex - renderedRange.startIndex + 1
       : 0;
   const savedCount = Math.max(0, messages.length - renderedCount);
-  const liveCount = sourceMessages.length;
+  const liveCount = renderableSourceMessages.length;
   const canRenderVirtuoso = shellHeight > 0;
 
   useEffect(() => {
@@ -402,20 +474,6 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
       });
     }
   }, [inProgress, messageRows.length, tailKey]);
-
-  useEffect(() => {
-    if (!interruptElement || messageRows.length === 0) {
-      return;
-    }
-
-    requestAnimationFrame(() => {
-      virtuosoRef.current?.scrollToIndex({
-        index: messageRows.length - 1,
-        align: "end",
-        behavior: "auto",
-      });
-    });
-  }, [interruptElement, messageRows.length]);
 
   const triggerLoadOlder = useCallback(() => {
     if (!hasOlderHistory || isLoadingOlderHistory || loadOlderInFlightRef.current || !onLoadOlderHistory) {
@@ -529,7 +587,7 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
               message={row.message}
               messageFeedback={messageFeedback}
               messageKey={row.messageKey}
-              messages={renderableMessages}
+              messages={messages}
               onCopy={onCopy}
               onRegenerate={onRegenerate}
               onThumbsDown={onThumbsDown}
@@ -581,7 +639,7 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
                 message={row.message}
                 messageFeedback={messageFeedback}
                 messageKey={row.messageKey}
-                messages={renderableMessages}
+                messages={messages}
                 onCopy={onCopy}
                 onRegenerate={onRegenerate}
                 onThumbsDown={onThumbsDown}
@@ -598,11 +656,6 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
           </div>
         </div>
       )}
-      {interruptElement ? (
-        <div className="copilotKitInterruptFooter">
-          <div className="copilotKitInterruptCardWrap">{interruptElement}</div>
-        </div>
-      ) : null}
     </div>
   );
 };

@@ -1,18 +1,5 @@
-/**
- * 进度显示组件 - 简洁版
- * 
- * 模仿 open-research-ANA 项目的进度条样式
- * - 简洁的线性布局
- * - 只显示已完成和正在执行的步骤
- * - 每个步骤可折叠
- */
-
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import "./ProgressDisplay.css";
-
-// ============================================================
-// 类型定义
-// ============================================================
 
 export interface Step {
   description: string;
@@ -25,139 +12,169 @@ export interface ProgressData {
 }
 
 interface ProgressDisplayProps {
-  /** 进度数据 */
   progressData: ProgressData;
+  isActive?: boolean;
 }
 
-// ============================================================
-// 辅助函数：清理 update 文本中的前导勾号
-// ============================================================
+type NormalizedStepState = "running" | "completed" | "failed" | "idle";
+
+interface NormalizedStep {
+  description: string;
+  updates: string[];
+  state: NormalizedStepState;
+}
+
+function normalizeStepState(status: string | undefined): NormalizedStepState {
+  const raw = String(status || "").trim().toLowerCase();
+  if (raw === "running" || raw === "executing") return "running";
+  if (raw === "complete" || raw === "completed") return "completed";
+  if (raw === "failed" || raw === "error") return "failed";
+  return "idle";
+}
+
 function cleanUpdateText(text: string): string {
-  // 移除开头的 ✓、√、✔ 等勾号和空格
-  return text.replace(/^[✓√✔\s]+/, '').trim();
+  return text.replace(/^[✓√✔\s]+/, "").trim();
 }
 
-// ============================================================
-// 主组件
-// ============================================================
+function cleanStepDescription(text: string): string {
+  return String(text || "")
+    .replace(/^[^A-Za-z0-9\u4e00-\u9fa5]+/u, "")
+    .trim();
+}
+
+function getVisibleSteps(steps: Step[]): NormalizedStep[] {
+  return steps
+    .map((step) => ({
+      description: cleanStepDescription(step.description || ""),
+      updates: (step.updates || []).map(cleanUpdateText).filter(Boolean),
+      state: normalizeStepState(step.status),
+    }))
+    .filter((step) => step.description && step.state !== "idle");
+}
+
+function getSummaryStep(steps: NormalizedStep[]): NormalizedStep | null {
+  if (!steps.length) {
+    return null;
+  }
+
+  const runningStep = steps.find((step) => step.state === "running");
+  if (runningStep) {
+    return runningStep;
+  }
+
+  for (let index = steps.length - 1; index >= 0; index -= 1) {
+    const step = steps[index];
+    if (step.state === "failed" || step.state === "completed") {
+      return step;
+    }
+  }
+
+  return steps[steps.length - 1];
+}
+
+function getSummaryDetail(step: NormalizedStep): string {
+  if (step.updates.length > 0) {
+    return step.updates[step.updates.length - 1];
+  }
+
+  if (step.state === "failed") {
+    return "节点执行异常";
+  }
+
+  return step.description;
+}
+
+function StatusGlyph({ state, isActive }: { state: NormalizedStepState; isActive: boolean }) {
+  if (state === "running" && isActive) {
+    return (
+      <span className="progress-glyph progress-glyph-running" aria-hidden="true">
+        <span className="progress-glyph-spinner" />
+      </span>
+    );
+  }
+
+  if (state === "failed") {
+    return (
+      <span className="progress-glyph progress-glyph-failed" aria-hidden="true">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.2">
+          <path d="M5 5 11 11M11 5 5 11" strokeLinecap="round" />
+        </svg>
+      </span>
+    );
+  }
+
+  return (
+    <span className="progress-glyph progress-glyph-completed" aria-hidden="true">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.2">
+        <path d="M3.5 8.5 6.5 11.2 12.5 4.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </span>
+  );
+}
 
 export const ProgressDisplay: React.FC<ProgressDisplayProps> = ({
   progressData,
+  isActive = false,
 }) => {
-  // 跟踪每个步骤的展开/折叠状态
-  const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set());
+  const [isExpanded, setIsExpanded] = useState(false);
+  const visibleSteps = useMemo(() => getVisibleSteps(progressData?.steps || []), [progressData?.steps]);
+  const summaryStep = useMemo(() => getSummaryStep(visibleSteps), [visibleSteps]);
 
-  // 空数据检查
-  if (!progressData?.steps || progressData.steps.length === 0) {
+  if (!summaryStep) {
     return null;
   }
 
-  const visibleSteps = progressData.steps
-    .map((step, originalIndex) => ({ step, originalIndex }))
-    .filter(({ step }) => {
-      const status = step.status;
-      return (
-        status === "complete" ||
-        status === "completed" ||
-        status === "running" ||
-        status === "executing" ||
-        status === "failed" ||
-        status === "error"
-      );
-    });
-
-  if (visibleSteps.length === 0) {
-    return null;
-  }
-
-  // 切换步骤展开状态
-  const toggleStep = (index: number) => {
-    setExpandedSteps(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(index)) {
-        newSet.delete(index);
-      } else {
-        newSet.add(index);
-      }
-      return newSet;
-    });
-  };
+  const effectiveState =
+    summaryStep.state === "running" && !isActive ? "completed" : summaryStep.state;
+  const summaryDetail = getSummaryDetail(summaryStep);
+  const canExpand = visibleSteps.length > 1 || visibleSteps.some((step) => step.updates.length > 0);
 
   return (
-    <div className="progress-container" data-test-id="progress-steps">
-      <div className="progress-list">
-        {visibleSteps.map(({ step, originalIndex }, visibleIndex) => {
-          // 判断状态
-          const isComplete = step.status === "complete" || step.status === "completed";
-          const isRunning = step.status === "running" || step.status === "executing";
-          const isFailed = step.status === "failed" || step.status === "error";
+    <section
+      className={`progress-summary-card is-${effectiveState}`}
+      data-test-id="progress-steps"
+    >
+      <button
+        type="button"
+        className={`progress-summary-card-shell ${isExpanded ? "expanded" : ""}`}
+        onClick={() => canExpand && setIsExpanded((prev) => !prev)}
+        aria-expanded={canExpand ? isExpanded : undefined}
+        disabled={!canExpand}
+      >
+        <StatusGlyph state={effectiveState} isActive={isActive} />
+        <div className="progress-summary-card-copy">
+          <div className="progress-summary-card-title">{summaryStep.description}</div>
+          <div className="progress-summary-card-detail" title={summaryDetail}>
+            {summaryDetail}
+          </div>
+        </div>
+        {canExpand ? (
+          <span className={`progress-summary-card-toggle ${isExpanded ? "expanded" : ""}`} aria-hidden="true">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="m4 6 4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+        ) : null}
+      </button>
+      {canExpand && isExpanded ? (
+        <div className="progress-detail-list">
+          {visibleSteps.map((step, index) => {
+            const detail = getSummaryDetail(step);
 
-          // 是否有子更新信息
-          const visibleUpdates = (step.updates || [])
-            .map(cleanUpdateText)
-            .filter(Boolean);
-          const hasUpdates = visibleUpdates.length > 0;
-          
-          // 是否展开（正在运行的默认展开，已完成的默认折叠）
-          const isExpanded = expandedSteps.has(originalIndex) || isRunning;
-          const isLastVisible = visibleIndex === visibleSteps.length - 1;
-
-          return (
-            <div
-              key={`${originalIndex}-${step.description}`}
-              className={`progress-step ${isComplete ? "done" : ""} ${isRunning ? "running" : ""} ${isFailed ? "failed" : ""}`}
-              data-test-id={isComplete ? "progress-step-item_done" : "progress-step-item_loading"}
-            >
-              {/* 左侧状态指示器 */}
-              <div className="step-indicator">
-                <div className={`step-circle ${isComplete ? "done" : ""} ${isRunning ? "running" : ""} ${isFailed ? "failed" : ""}`}>
-                  {isComplete ? (
-                    <svg className="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                      <polyline points="20 6 9 17 4 12"></polyline>
-                    </svg>
-                  ) : isFailed ? (
-                    <span className="error-icon">✕</span>
-                  ) : (
-                    <div className="spinner"></div>
-                  )}
-                </div>
-                {/* 连接线 */}
-                {!isLastVisible && (
-                  <div className={`step-line ${isComplete ? "done" : ""}`}></div>
-                )}
-              </div>
-
-              {/* 右侧内容 */}
-              <div className="step-content">
-                {/* 标题行 - 可点击折叠 */}
-                <div 
-                  className={`step-header ${hasUpdates ? "clickable" : ""}`}
-                  onClick={() => hasUpdates && toggleStep(originalIndex)}
-                >
-                  <span className="step-text">{step.description}</span>
-                  {hasUpdates && (
-                    <span className={`step-toggle ${isExpanded ? "expanded" : ""}`}>
-                      ▼
-                    </span>
-                  )}
-                </div>
-                
-                {/* 子更新信息 - 可折叠 */}
-                {hasUpdates && isExpanded && (
-                  <div className="step-updates">
-                    {visibleUpdates.map((update, idx) => (
-                      <div key={idx} className="step-update">
-                        <span>{update}</span>
-                      </div>
-                    ))}
+            return (
+              <div key={`${step.description}-${index}`} className={`progress-detail-item is-${step.state}`}>
+                <div className="progress-detail-title">{step.description}</div>
+                {detail && detail !== step.description ? (
+                  <div className="progress-detail-note" title={detail}>
+                    {detail}
                   </div>
-                )}
+                ) : null}
               </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </section>
   );
 };
 

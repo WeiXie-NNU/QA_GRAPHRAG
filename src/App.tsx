@@ -7,6 +7,7 @@ import "@copilotkit/react-ui/styles.css";
 import "./App.css";
 
 import { ChatComposer } from "./components/chat/ChatComposer";
+import { HITLInterruptLayer } from "./components/chat/HITLInterruptLayer";
 import { ModelSelector } from "./components/chat/ModelSelector";
 import { WelcomeScreen } from "./components/chat/WelcomeScreen";
 import { Sidebar } from "./components/sidebar";
@@ -218,6 +219,7 @@ function AppContent() {
           threadId={threadId}
         >
           <AgentProvider agentName={agent}>
+            <HITLInterruptLayer />
             {isNewThread ? (
               <NewThreadStage agent={agent} onSend={handleFirstMessage} />
             ) : (
@@ -268,8 +270,10 @@ function NewThreadStage({
     sendMessage,
     isLoading,
     stopGeneration,
+    interrupt,
     agent: connectedAgent,
   } = useCopilotChatInternal();
+  const hasPendingInterrupt = Boolean(interrupt);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -342,13 +346,13 @@ function NewThreadStage({
           <WelcomeScreen visible={true} variant="inline" />
           <div className="new-thread-stage-composer">
             <ChatComposer
-              disabled={!connectedAgent || Boolean(pendingFirstMessage)}
+              disabled={!connectedAgent || Boolean(pendingFirstMessage) || hasPendingInterrupt}
               inProgress={isLoading}
               value={draft}
               onValueChange={setDraft}
               onSend={handleSend}
               onStop={stopGeneration}
-              placeholder="询问任何问题"
+              placeholder={hasPendingInterrupt ? "请先完成当前人工审核" : "询问任何问题"}
             />
           </div>
           {suggestions.length > 0 && (
