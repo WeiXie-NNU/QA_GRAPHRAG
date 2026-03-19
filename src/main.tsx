@@ -14,6 +14,9 @@ const IndexPage = lazy(() =>
 const GraphPage = lazy(() =>
   import('./pages/GraphPage').then((module) => ({ default: module.GraphPage }))
 )
+const CaseExtractionPage = lazy(() =>
+  import('./pages/CaseExtractionPage').then((module) => ({ default: module.CaseExtractionPage }))
+)
 // 重定向组件：访问 /chat 时自动重定向到 /chat/:threadId
 function ChatRedirect() {
   // 使用 useMemo 确保在 StrictMode 下也只生成一次 ID
@@ -65,6 +68,7 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/login" element={<LoginRoute />} />
             <Route path="/" element={<IndexPage />} />
             <Route path="/graph" element={<RequireAuth><GraphPage /></RequireAuth>} />
+            <Route path="/case-extraction" element={<RequireAuth><CaseExtractionPage /></RequireAuth>} />
             <Route path="/chat" element={<RequireAuth><ChatRedirect /></RequireAuth>} />
             <Route path="/chat/:threadId" element={<RequireAuth><App /></RequireAuth>} />
             <Route path="*" element={<Navigate to="/" replace />} />

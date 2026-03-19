@@ -5,6 +5,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef, memo } from "react";
+import { Link } from "react-router-dom";
 import type { AppUser } from "../../services/authService";
 import type { ThreadMeta } from "../../services/threadService";
 import "./Sidebar.css";
@@ -280,6 +281,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
             <span className="action-label">知识图谱</span>
           </a>
+
+          <Link
+            to="/case-extraction"
+            className="sidebar-action-item"
+            title="案例提取工具"
+          >
+            <div className="action-icon">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M14 3v4a1 1 0 0 0 1 1h4"/>
+                <path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z"/>
+                <path d="M9 9h1"/>
+                <path d="M9 13h6"/>
+                <path d="M9 17h6"/>
+              </svg>
+            </div>
+            <span className="action-label">案例提取</span>
+          </Link>
 
           {/* 用户头像 */}
           <div className="user-menu-wrap" ref={userMenuRef}>
