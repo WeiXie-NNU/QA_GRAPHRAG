@@ -68,6 +68,7 @@ from thread_routes import (
 from thread_maintenance import get_thread_backfill_stats
 from llm_routes import register_llm_routes
 from graphrag_visual_routes import register_graphrag_visual_routes
+from case_extraction_routes import register_case_extraction_routes
 
 # 数据库路径配置
 # 优先使用环境变量，否则使用项目 data/ 目录
@@ -677,6 +678,11 @@ register_graphrag_visual_routes(
     app=app,
     get_repository=get_repository,
 )
+
+
+# ============ 案例提取工具 API ============
+
+register_case_extraction_routes(app)
 
 
 # ============ 主入口 ============
