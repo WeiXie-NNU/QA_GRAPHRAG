@@ -25,22 +25,7 @@
   flex: 1;
   font-size: 0.9rem;
   color: #fff;
-  font-weight: 500;
-}
-
-.map-external-link {
-  padding: 4px 10px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.1);
-  color: #aaa;
-  font-size: 0.75rem;
-  text-decoration: none;
-  transition: all 0.2s;
-}
-
-.map-external-link:hover {
-  background: rgba(233, 69, 96, 0.3);
-  color: #fff;
+  font-weight: 600;
 }
 
 .map-iframe {
@@ -117,15 +102,5 @@
 @media (max-width: 768px) {
   .map-iframe {
     height: 200px;
-  }
-  
-  .map-header {
-    flex-wrap: wrap;
-  }
-  
-  .map-title {
-    order: 1;
-    flex-basis: 100%;
-    margin-top: 8px;
   }
 }

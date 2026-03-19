@@ -97,7 +97,7 @@ export function MapView({ address, latitude, longitude, zoom = 15 }: MapViewProp
     return null;
   }
 
-  // 生成天地图 HTML
+  // 生成天地图 HTML，复用首页案例分布的地图设定
   const generateMapHtml = () => `
     <!DOCTYPE html>
     <html>
@@ -106,50 +106,67 @@ export function MapView({ address, latitude, longitude, zoom = 15 }: MapViewProp
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
       <style>
-        body { margin: 0; padding: 0; }
-        #map { width: 100%; height: 100%; }
+        html, body, #map { margin: 0; width: 100%; height: 100%; }
+        .case-dot {
+          width: 12px;
+          height: 12px;
+          border-radius: 999px;
+          background: #ef4444;
+          border: 2px solid #fff;
+          box-shadow: 0 2px 6px rgba(239, 68, 68, 0.55);
+        }
+        .leaflet-popup-content {
+          margin: 10px 12px;
+          font-family: Arial, sans-serif;
+        }
       </style>
     </head>
     <body>
       <div id="map"></div>
       <script>
-        const map = L.map('map', { attributionControl: false }).setView([${coords.lat}, ${coords.lon}], ${zoom});
-        
-        // 天地图矢量底图
+        const chinaBounds = L.latLngBounds([
+          [3.5, 73.0],
+          [54.5, 136.0]
+        ]);
+
+        const map = L.map('map', {
+          attributionControl: false,
+          maxBounds: chinaBounds,
+          maxBoundsViscosity: 1.0,
+          minZoom: 3,
+          maxZoom: 12,
+        }).setView([${coords.lat}, ${coords.lon}], ${Math.min(zoom, 10)});
+
         L.tileLayer('https://t{s}.tianditu.gov.cn/vec_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=vec&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL={x}&TILEROW={y}&TILEMATRIX={z}&tk=${TIANDITU_API_KEY}', {
           subdomains: ['0', '1', '2', '3', '4', '5', '6', '7'],
-          attribution: '© 天地图'
+          maxZoom: 18
         }).addTo(map);
-        
-        // 天地图矢量注记
+
         L.tileLayer('https://t{s}.tianditu.gov.cn/cva_w/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=cva&STYLE=default&TILEMATRIXSET=w&FORMAT=tiles&TILECOL={x}&TILEROW={y}&TILEMATRIX={z}&tk=${TIANDITU_API_KEY}', {
-          subdomains: ['0', '1', '2', '3', '4', '5', '6', '7']
+          subdomains: ['0', '1', '2', '3', '4', '5', '6', '7'],
+          maxZoom: 18
         }).addTo(map);
-        
-        // 添加标记
-        L.marker([${coords.lat}, ${coords.lon}]).addTo(map)
-          .bindPopup('<b>${address.replace(/'/g, "\\'")}</b>').openPopup();
+
+        const marker = L.marker([${coords.lat}, ${coords.lon}], {
+          icon: L.divIcon({ className: 'case-dot', iconSize: [12, 12], iconAnchor: [6, 6] })
+        }).addTo(map);
+
+        marker.bindPopup('<strong>${address.replace(/'/g, "\\'")}</strong>').openPopup();
+
+        const pointBounds = L.latLngBounds([[${coords.lat}, ${coords.lon}]]);
+        map.fitBounds(pointBounds.pad(0.6), { padding: [24, 24], maxZoom: ${Math.min(zoom, 10)} });
+        map.panInsideBounds(chinaBounds, { animate: false });
+        setTimeout(() => map.invalidateSize({ animate: false }), 0);
       </script>
     </body>
     </html>
   `;
-
-  // 外部链接 - 使用天地图
-  const externalUrl = `https://map.tianditu.gov.cn/?center=${coords.lon},${coords.lat}&zoom=${zoom}&type=vec`;
 
   return (
     <div className="map-container">
       <div className="map-header">
         <span className="map-icon">📍</span>
         <span className="map-title">{address}</span>
-        <a 
-          href={externalUrl} 
-          target="_blank" 
-          rel="noopener noreferrer"
-          className="map-external-link"
-        >
-          在天地图中打开 ↗
-        </a>
       </div>
       <iframe
         className="map-iframe"
