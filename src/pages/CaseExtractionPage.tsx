@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import "./CaseExtractionPage.css";
+import { MapView } from "../components/MapView";
 import {
   extractCaseFromPaper,
   getCaseExtractionLlmModels,
@@ -72,6 +73,155 @@ function formatLlmLabel(model: string): string {
     .join(" ");
 }
 
+type ExtractedMapLocation = {
+  address: string;
+  latitude?: number;
+  longitude?: number;
+};
+
+function parseCoordinateValue(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const match = value.match(/-?\d+(?:\.\d+)?/);
+    if (!match) {
+      return undefined;
+    }
+    const parsed = Number(match[0]);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  return undefined;
+}
+
+function readCoordinatePair(value: unknown): { latitude?: number; longitude?: number } | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const latitude =
+    parseCoordinateValue(record.latitude) ??
+    parseCoordinateValue(record.lat) ??
+    parseCoordinateValue(record.y);
+  const longitude =
+    parseCoordinateValue(record.longitude) ??
+    parseCoordinateValue(record.lng) ??
+    parseCoordinateValue(record.lon) ??
+    parseCoordinateValue(record.x);
+
+  if (latitude !== undefined && longitude !== undefined) {
+    return { latitude, longitude };
+  }
+
+  if (typeof record.coordinates === "string") {
+    const matches = record.coordinates.match(/-?\d+(?:\.\d+)?/g);
+    if (matches && matches.length >= 2) {
+      const [latText, lonText] = matches;
+      const parsedLatitude = Number(latText);
+      const parsedLongitude = Number(lonText);
+      if (Number.isFinite(parsedLatitude) && Number.isFinite(parsedLongitude)) {
+        return { latitude: parsedLatitude, longitude: parsedLongitude };
+      }
+    }
+  }
+
+  if (record.coordinates && typeof record.coordinates === "object") {
+    return readCoordinatePair(record.coordinates);
+  }
+
+  return null;
+}
+
+function buildAddressCandidate(record: Record<string, unknown>): string {
+  const directAddressFields = [
+    "address",
+    "location",
+    "site_name",
+    "site",
+    "study_area",
+    "study_site",
+    "region",
+  ];
+
+  for (const field of directAddressFields) {
+    const value = record[field];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  const parts = [
+    record.country,
+    record.province,
+    record.city,
+    record.county,
+    record.region,
+    record.site_name,
+    record.site,
+  ]
+    .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+    .map((part) => part.trim());
+
+  return parts.join(" ");
+}
+
+function extractMapLocation(value: unknown): ExtractedMapLocation | null {
+  let fallbackAddress = "";
+
+  function walk(node: unknown): ExtractedMapLocation | null {
+    if (!node || typeof node !== "object") {
+      return null;
+    }
+
+    if (Array.isArray(node)) {
+      for (const item of node) {
+        const found = walk(item);
+        if (found) {
+          return found;
+        }
+      }
+      return null;
+    }
+
+    const record = node as Record<string, unknown>;
+    const address = buildAddressCandidate(record);
+    if (!fallbackAddress && address) {
+      fallbackAddress = address;
+    }
+
+    const coordinates = readCoordinatePair(record);
+    if (coordinates?.latitude !== undefined && coordinates?.longitude !== undefined) {
+      return {
+        address: address || fallbackAddress || "案例位置",
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
+      };
+    }
+
+    for (const child of Object.values(record)) {
+      const found = walk(child);
+      if (found) {
+        if (!found.address && address) {
+          return { ...found, address };
+        }
+        return found;
+      }
+    }
+
+    return null;
+  }
+
+  const found = walk(value);
+  if (found) {
+    return found;
+  }
+
+  return fallbackAddress ? { address: fallbackAddress } : null;
+}
+
 function renderStructuredValue(value: unknown, path = "root"): ReactNode {
   if (value === null || value === undefined || value === "") {
     return <span className="case-tool-structured-empty">未提取</span>;
@@ -124,7 +274,7 @@ export function CaseExtractionPage() {
   const [extractorType, setExtractorType] = useState<CaseExtractorType>("prosail");
   const [extractorQuery, setExtractorQuery] = useState(EXTRACTOR_OPTIONS[0].label);
   const [isExtractorMenuOpen, setIsExtractorMenuOpen] = useState(false);
-  const [structuredView, setStructuredView] = useState<"table" | "json">("table");
+  const [structuredView, setStructuredView] = useState<"table" | "json" | "map">("table");
   const [availableLlmModels, setAvailableLlmModels] = useState<LLMModelOption[]>([]);
   const [selectedLlmModel, setSelectedLlmModel] = useState("gpt-5-mini");
   const [paperText, setPaperText] = useState("");
@@ -166,6 +316,8 @@ export function CaseExtractionPage() {
 
     return availableLlmModels.find((item) => item.value === modelValue)?.label ?? formatLlmLabel(modelValue);
   }, [availableLlmModels, currentLlmOption?.label, result?.model]);
+
+  const mapLocation = useMemo(() => extractMapLocation(result?.parsed_result), [result?.parsed_result]);
 
   useEffect(() => {
     let cancelled = false;
@@ -563,11 +715,22 @@ export function CaseExtractionPage() {
                     >
                       JSON
                     </button>
+                    <button
+                      type="button"
+                      className={`case-tool-view-btn ${structuredView === "map" ? "active" : ""}`}
+                      onClick={() => setStructuredView("map")}
+                    >
+                      地图
+                    </button>
                   </div>
                 </div>
                 <div className="case-tool-structured-panel">
                   <div className="case-tool-structured-panel-head">
-                    {structuredView === "table" ? "表格化预览" : "结构化 JSON"}
+                    {structuredView === "table"
+                      ? "表格化预览"
+                      : structuredView === "json"
+                        ? "结构化 JSON"
+                        : "空间位置预览"}
                   </div>
                   {structuredView === "json" ? (
                     <pre className="case-tool-code">
@@ -577,13 +740,30 @@ export function CaseExtractionPage() {
                           ? prettyJson(result.parsed_result)
                           : "模型输出未能解析为 JSON，请查看下方原始输出。"}
                     </pre>
-                  ) : (
+                  ) : structuredView === "table" ? (
                     <div className="case-tool-structured-preview">
                       {result.is_none
                         ? "None"
                         : result.parsed_result
                           ? renderStructuredValue(result.parsed_result)
                           : "模型输出未能解析为 JSON，暂时无法渲染表格视图。"}
+                    </div>
+                  ) : (
+                    <div className="case-tool-map-panel">
+                      {result.is_none ? (
+                        <div className="case-tool-map-empty">当前结果为 None，暂无可展示的空间位置。</div>
+                      ) : mapLocation ? (
+                        <MapView
+                          address={mapLocation.address}
+                          latitude={mapLocation.latitude}
+                          longitude={mapLocation.longitude}
+                          zoom={mapLocation.latitude !== undefined && mapLocation.longitude !== undefined ? 8 : 10}
+                        />
+                      ) : (
+                        <div className="case-tool-map-empty">
+                          当前结构化结果里没有识别到可用的经纬度或地点信息，暂时无法渲染地图。
+                        </div>
+                      )}
                     </div>
                   )}
 
