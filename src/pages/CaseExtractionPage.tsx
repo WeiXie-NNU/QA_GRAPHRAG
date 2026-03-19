@@ -49,6 +49,29 @@ function formatStructuredLabel(label: string): string {
     .trim();
 }
 
+function formatLlmLabel(model: string): string {
+  const normalized = model.trim();
+  if (!normalized) {
+    return "";
+  }
+
+  return normalized
+    .split("-")
+    .map((segment, index) => {
+      if (index === 0 && segment.toLowerCase() === "gpt") {
+        return "GPT";
+      }
+      if (segment.toLowerCase() === "mini") {
+        return "Mini";
+      }
+      if (segment.toLowerCase() === "turbo") {
+        return "Turbo";
+      }
+      return segment;
+    })
+    .join(" ");
+}
+
 function renderStructuredValue(value: unknown, path = "root"): ReactNode {
   if (value === null || value === undefined || value === "") {
     return <span className="case-tool-structured-empty">未提取</span>;
@@ -135,6 +158,15 @@ export function CaseExtractionPage() {
     [availableLlmModels, selectedLlmModel]
   );
 
+  const displayedResultModel = useMemo(() => {
+    const modelValue = result?.model?.trim();
+    if (!modelValue) {
+      return currentLlmOption?.label ?? "";
+    }
+
+    return availableLlmModels.find((item) => item.value === modelValue)?.label ?? formatLlmLabel(modelValue);
+  }, [availableLlmModels, currentLlmOption?.label, result?.model]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -142,7 +174,15 @@ export function CaseExtractionPage() {
       const response = await getCaseExtractionLlmModels();
       if (!cancelled) {
         setAvailableLlmModels(response.models);
-        setSelectedLlmModel(response.current || response.models[0]?.value || "gpt-5-mini");
+        setSelectedLlmModel((current) => {
+          if (response.models.some((item) => item.value === current)) {
+            return current;
+          }
+          if (response.current && response.models.some((item) => item.value === response.current)) {
+            return response.current;
+          }
+          return response.models[0]?.value || current || "gpt-5-mini";
+        });
       }
     }
 
@@ -248,6 +288,15 @@ export function CaseExtractionPage() {
         paper_title: importedFileName ? inferPaperTitle(importedFileName) : "",
         llm_model: selectedLlmModel,
       });
+      setAvailableLlmModels((current) => {
+        if (!response.model || current.some((item) => item.value === response.model)) {
+          return current;
+        }
+        return [...current, { value: response.model, label: formatLlmLabel(response.model) }];
+      });
+      if (response.model) {
+        setSelectedLlmModel(response.model);
+      }
       setStructuredView("table");
       setResult(response);
     } catch (requestError) {
@@ -457,8 +506,8 @@ export function CaseExtractionPage() {
               <h2>提取结果</h2>
               <p>优先查看结构化 JSON，再决定是否需要人工修订 prompt 或文本范围。</p>
             </div>
-            {result?.model || currentLlmOption?.label ? (
-              <span className="case-tool-model-pill">{result?.model || currentLlmOption?.label}</span>
+            {displayedResultModel ? (
+              <span className="case-tool-model-pill">{displayedResultModel}</span>
             ) : null}
           </div>
 
@@ -475,19 +524,21 @@ export function CaseExtractionPage() {
                   <span className={`case-tool-status ${result.parse_status}`}>{result.parse_status}</span>
                 </div>
                 <div className="case-tool-summary-grid">
-                  <div>
+                  <div className="case-tool-summary-item">
                     <span>提取器</span>
                     <strong>{currentExtractor.label}</strong>
                   </div>
-                  <div>
+                  <div className="case-tool-summary-item">
                     <span>提取 LLM</span>
-                    <strong>{result.model}</strong>
+                    <strong>{displayedResultModel || result.model}</strong>
                   </div>
-                  <div>
+                  <div className="case-tool-summary-item case-tool-summary-source">
                     <span>文本来源</span>
-                    <strong>{importedFileName || result.paper_title || "手动粘贴文本"}</strong>
+                    <strong title={importedFileName || result.paper_title || "手动粘贴文本"}>
+                      {importedFileName || result.paper_title || "手动粘贴文本"}
+                    </strong>
                   </div>
-                  <div>
+                  <div className="case-tool-summary-item case-tool-summary-status-item">
                     <span>是否无案例</span>
                     <strong>{result.is_none ? "是，返回 None" : "否，进入结构化输出"}</strong>
                   </div>
