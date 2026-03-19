@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import "./CaseExtractionPage.css";
 import {
   extractCaseFromPaper,
+  getCaseExtractionPrompt,
   type CaseExtractionResponse,
   type CaseExtractorType,
 } from "../services/caseExtractionService";
@@ -42,11 +43,47 @@ export function CaseExtractionPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<CaseExtractionResponse | null>(null);
+  const [promptTemplate, setPromptTemplate] = useState("");
+  const [promptError, setPromptError] = useState("");
+  const [isPromptLoading, setIsPromptLoading] = useState(false);
 
   const currentExtractor = useMemo(
     () => EXTRACTOR_OPTIONS.find((item) => item.value === extractorType) ?? EXTRACTOR_OPTIONS[0],
     [extractorType]
   );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPrompt() {
+      setIsPromptLoading(true);
+      setPromptError("");
+
+      try {
+        const response = await getCaseExtractionPrompt(extractorType);
+        if (!cancelled) {
+          setPromptTemplate(response.prompt_template);
+        }
+      } catch (promptRequestError) {
+        if (!cancelled) {
+          setPromptTemplate("");
+          setPromptError(
+            promptRequestError instanceof Error ? promptRequestError.message : "提示词加载失败，请稍后重试。"
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsPromptLoading(false);
+        }
+      }
+    }
+
+    void loadPrompt();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [extractorType]);
 
   const paperStats = useMemo(() => {
     const chars = paperText.trim().length;
@@ -139,7 +176,10 @@ export function CaseExtractionPage() {
                 key={option.value}
                 type="button"
                 className={`case-tool-extractor ${extractorType === option.value ? "active" : ""}`}
-                onClick={() => setExtractorType(option.value)}
+                onClick={() => {
+                  setExtractorType(option.value);
+                  setResult(null);
+                }}
               >
                 <strong>{option.label}</strong>
                 <span>{option.description}</span>
@@ -177,6 +217,21 @@ export function CaseExtractionPage() {
           </div>
 
           {importedFileName ? <div className="case-tool-upload-note">已导入：{importedFileName}</div> : null}
+
+          <div className="case-tool-field">
+            <div className="case-tool-prompt-head">
+              <label htmlFor="extractor-prompt">当前提取提示词</label>
+              <span>{isPromptLoading ? "加载中..." : currentExtractor.label}</span>
+            </div>
+            <textarea
+              id="extractor-prompt"
+              className="case-tool-prompt"
+              value={promptTemplate}
+              readOnly
+              placeholder="这里会显示当前提取器使用的提示词。"
+            />
+            {promptError ? <div className="case-tool-error">{promptError}</div> : null}
+          </div>
 
           <div className="case-tool-field grow">
             <label htmlFor="paper-text">论文正文</label>

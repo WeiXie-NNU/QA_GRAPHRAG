@@ -68,7 +68,14 @@ from thread_routes import (
 from thread_maintenance import get_thread_backfill_stats
 from llm_routes import register_llm_routes
 from graphrag_visual_routes import register_graphrag_visual_routes
-from case_extraction_routes import register_case_extraction_routes
+from case_extraction import (
+    CaseExtractionPromptResponse,
+    CaseExtractionRequest,
+    CaseExtractionResponse,
+    ExtractorType,
+    get_prompt_template,
+    invoke_case_extraction,
+)
 
 # 数据库路径配置
 # 优先使用环境变量，否则使用项目 data/ 目录
@@ -652,6 +659,45 @@ async def cleanup_sessions():
     }
 
 
+# ============ 案例提取工具 API ============
+
+@app.get("/api/tools/case-extraction/prompts/{extractor_type}", response_model=CaseExtractionPromptResponse)
+async def get_case_extraction_prompt(extractor_type: ExtractorType):
+    return CaseExtractionPromptResponse(
+        extractor_type=extractor_type,
+        prompt_template=get_prompt_template(extractor_type),
+    )
+
+
+@app.post("/api/tools/case-extraction/extract", response_model=CaseExtractionResponse)
+async def extract_case_from_paper(payload: CaseExtractionRequest):
+    paper_text = payload.paper_text.strip()
+    if len(paper_text) > 120_000:
+        raise HTTPException(status_code=413, detail="论文文本过长，请先裁剪后再提取。")
+
+    try:
+        result = await asyncio.to_thread(
+            invoke_case_extraction,
+            payload.extractor_type,
+            paper_text,
+            payload.paper_title.strip(),
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"案例提取失败: {exc}") from exc
+
+    return CaseExtractionResponse(
+        extractor_type=payload.extractor_type,
+        model=str(result["model"]),
+        paper_title=payload.paper_title.strip(),
+        raw_output=str(result["raw_output"]),
+        is_none=bool(result["is_none"]),
+        parsed_result=result["parsed_result"],
+        parse_status=result["parse_status"],
+    )
+
+
 # ============ 线程历史 API ============
 
 register_thread_routes(
@@ -678,12 +724,6 @@ register_graphrag_visual_routes(
     app=app,
     get_repository=get_repository,
 )
-
-
-# ============ 案例提取工具 API ============
-
-register_case_extraction_routes(app)
-
 
 # ============ 主入口 ============
 
