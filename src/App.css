@@ -31,7 +31,9 @@
   --sidebar-collapsed-width: 0px;
   --header-height: 56px;
   --footer-height: 40px;
+  --chat-content-max-width: 850px;
   --chat-scroll-bleed: clamp(28px, 3.6vw, 52px);
+  --chat-user-bubble-max-width: min(72%, 760px);
   
   /* 阴影 */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
@@ -743,7 +745,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  max-width: 850px;
+  max-width: var(--chat-content-max-width);
   width: 100%;
   margin: 0 auto;
 }
@@ -769,7 +771,7 @@ body {
 
 .chat-loading-input {
   height: 56px;
-  max-width: 850px;
+  max-width: var(--chat-content-max-width);
   width: 100%;
   margin: 20px auto 0;
   border-radius: 28px;
@@ -894,6 +896,11 @@ body {
   .copilotKitMessagesList {
     max-width: 100% !important;
     transform: none !important;
+  }
+
+  .copilotKitInterruptFooter {
+    width: 100%;
+    transform: none;
   }
 
   .user-menu-panel,
@@ -1172,7 +1179,7 @@ a[href*="copilotkit"],
 
 /* 消息内容居中，加宽显示区域 */
 .copilotKitMessagesList {
-  max-width: 850px !important;
+  max-width: var(--chat-content-max-width) !important;
   width: 100% !important;
   margin-left: auto !important;
   margin-right: auto !important;
@@ -1237,6 +1244,37 @@ a[href*="copilotkit"],
   display: none !important;
 }
 
+.copilotKitUserMessage {
+  display: flex !important;
+  justify-content: flex-end !important;
+  align-items: flex-start !important;
+  width: 100% !important;
+  margin-bottom: 24px !important;
+  padding: 0 24px !important;
+  background: transparent !important;
+}
+
+.copilotKitUserMessageBubble {
+  width: fit-content;
+  max-width: var(--chat-user-bubble-max-width);
+  margin-left: auto;
+  padding: 14px 18px;
+  border-radius: 26px;
+  background: var(--copilot-kit-primary-color);
+  color: var(--copilot-kit-contrast-color);
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-align: left;
+  line-height: 1.6;
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.16);
+}
+
+.copilotKitUserMessageBubbleWithImage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 /* 输入区域 - 居中显示，加宽 */
 .copilotKitInput {
   flex-shrink: 0 !important;
@@ -1244,7 +1282,7 @@ a[href*="copilotkit"],
   background: var(--copilot-kit-background-color) !important;
   border-top: none !important;
   position: relative !important;
-  max-width: 850px !important;
+  max-width: var(--chat-content-max-width) !important;
   margin: 0 auto !important;
   width: 100% !important;
   box-sizing: border-box !important;
@@ -1351,14 +1389,15 @@ a[href*="copilotkit"],
 
 /* =============== HITL 卡片（AG-UI Interrupt） =============== */
 .copilotKitInterruptFooter {
-  width: 100%;
-  max-width: 850px;
+  width: min(100%, var(--chat-content-max-width));
   margin: 0 auto;
   padding: 0 24px 16px;
 }
 
 .copilotKitInterruptCardWrap {
   width: 100%;
+  display: flex;
+  justify-content: center;
 }
 
 .hitl-card {
@@ -1538,10 +1577,11 @@ a[href*="copilotkit"],
 
 .hitl-drawer {
   position: fixed;
-  top: 72px;
-  right: 24px;
-  bottom: 24px;
-  width: min(540px, calc(100vw - 96px));
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(920px, calc(100vw - 48px));
+  max-height: min(820px, calc(100vh - 48px));
   display: flex;
   flex-direction: column;
   border: 1px solid rgba(148, 163, 184, 0.25);
@@ -1708,17 +1748,23 @@ a[href*="copilotkit"],
 
 @media (max-width: 960px) {
   .hitl-drawer {
-    top: 64px;
-    right: 12px;
-    left: 12px;
-    bottom: 12px;
-    width: auto;
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
   }
 }
 
 @media (max-width: 640px) {
   .copilotKitInterruptFooter {
     padding: 0 16px 16px;
+  }
+
+  .copilotKitUserMessage {
+    padding: 0 16px !important;
+  }
+
+  .copilotKitUserMessageBubble {
+    max-width: min(84%, 100%);
+    padding: 12px 16px;
   }
 
   .hitl-card {

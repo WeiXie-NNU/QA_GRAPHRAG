@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useId, useMemo, useState } from "react";
 import { loadAdminGeoJson, loadRepositoryRegistry, type RepositoryRegistry } from "../../services/resourceService";
 
 type InterruptValue = {
@@ -173,6 +173,7 @@ export const HITLInterruptCard: React.FC<{
   const [isDrawerOpen, setIsDrawerOpen] = useState(true);
   const [showEntityJson, setShowEntityJson] = useState(false);
   const [showContextJson, setShowContextJson] = useState(false);
+  const dialogTitleId = useId();
 
   useEffect(() => {
     setFormState(createInitialFormState(value));
@@ -222,6 +223,27 @@ export const HITLInterruptCard: React.FC<{
       cancelled = true;
     };
   }, [interruptKey, isEntityReview]);
+
+  useEffect(() => {
+    if (!isDrawerOpen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !submittingAction) {
+        setIsDrawerOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isDrawerOpen, submittingAction]);
 
   function updateFormField<K extends keyof ReviewFormState>(key: K, nextValue: ReviewFormState[K]) {
     setFormState((prev) => {
@@ -536,12 +558,18 @@ export const HITLInterruptCard: React.FC<{
             aria-label="关闭人工审核面板"
             onClick={() => setIsDrawerOpen(false)}
           />
-          <aside className="hitl-drawer" aria-label="人工审核面板">
+          <aside
+            className="hitl-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={dialogTitleId}
+            aria-label="人工审核面板"
+          >
             <div className="hitl-drawer-header">
               <div>
                 <div className="hitl-card-heading">
                   <span className="hitl-card-badge">HITL</span>
-                  <span className="hitl-card-title">人工审核</span>
+                  <span className="hitl-card-title" id={dialogTitleId}>人工审核</span>
                 </div>
                 <div className="hitl-drawer-task">{task}</div>
                 <div className="hitl-drawer-subtitle">

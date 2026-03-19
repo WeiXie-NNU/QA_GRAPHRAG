@@ -331,6 +331,7 @@ def register_thread_routes(
     async def get_thread_messages(
         thread_id: str,
         before_id: Optional[int] = Query(default=None),
+        before_message_id: Optional[str] = Query(default=None),
         limit: int = Query(default=40, ge=1, le=100),
         agent: Optional[str] = Query(default="test"),
         x_user_id: Optional[str] = Header(default=DEFAULT_USER_ID, alias="X-User-Id"),
@@ -357,6 +358,7 @@ def register_thread_routes(
             get_db_conn(),
             thread_id=thread_id,
             before_id=before_id,
+            before_message_id=before_message_id,
             limit=limit,
         )
         return ThreadMessagesPageResponse(thread_id=thread_id, **page)

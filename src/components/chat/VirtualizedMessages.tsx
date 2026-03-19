@@ -30,6 +30,41 @@ function getMessageKey(message: Message, index: number): string {
   return `message:${index}:${String(message.role)}:${String((message as any)?.content ?? "")}`;
 }
 
+function getComparableMessageId(message: Message): string {
+  const rawId = (message as any)?.id;
+  return rawId == null ? "" : String(rawId);
+}
+
+function mergeMessageGroups(...groups: Message[][]): Message[] {
+  const merged: Message[] = [];
+  const indexByStableId = new Map<string, number>();
+
+  groups.forEach((group) => {
+    group.forEach((message) => {
+      if (!message) {
+        return;
+      }
+
+      const stableId = getComparableMessageId(message);
+      if (stableId) {
+        const existingIndex = indexByStableId.get(stableId);
+        if (existingIndex != null) {
+          merged[existingIndex] = message;
+          return;
+        }
+
+        indexByStableId.set(stableId, merged.length);
+        merged.push(message);
+        return;
+      }
+
+      merged.push(message);
+    });
+  });
+
+  return merged;
+}
+
 function hasTextContent(content: unknown): boolean {
   if (typeof content === "string") {
     return content.trim().length > 0;
@@ -89,23 +124,10 @@ function isRenderableMessage(
   return false;
 }
 
-function mergeMessageGroups(...groups: Message[][]): Message[] {
-  const order: string[] = [];
-  const latestById = new Map<string, Message>();
-
-  groups.forEach((group) => {
-    group.forEach((message, index) => {
-      const messageKey = getMessageKey(message, index);
-      if (!latestById.has(messageKey)) {
-        order.push(messageKey);
-      }
-      latestById.set(messageKey, message);
-    });
-  });
-
-  return order
-    .map((messageKey) => latestById.get(messageKey))
-    .filter((message): message is Message => Boolean(message));
+function filterRenderableMessages(messages: Message[], inProgress: boolean): Message[] {
+  return messages.filter((message, index) =>
+    isRenderableMessage(message, index, messages.length, inProgress)
+  );
 }
 
 type VirtualizedMessagesProps = MessagesProps & {
@@ -279,7 +301,10 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const deferredLiveMessages = useDeferredValue(liveMessages);
-  const initialMessages = useMemo(() => makeInitialMessages(initialContent), [initialContent]);
+  const initialMessages = useMemo(
+    () => filterRenderableMessages(makeInitialMessages(initialContent), false),
+    [initialContent]
+  );
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [firstItemIndex, setFirstItemIndex] = useState(FIRST_ITEM_INDEX_BASE);
   const [renderedRange, setRenderedRange] = useState({ startIndex: 0, endIndex: -1 });
@@ -293,23 +318,27 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
     () => (inProgress && !isAtBottom ? deferredLiveMessages : liveMessages),
     [deferredLiveMessages, inProgress, isAtBottom, liveMessages]
   );
+  const renderableHistoryMessages = useMemo(
+    () => filterRenderableMessages(historyMessages, false),
+    [historyMessages]
+  );
+  const renderableSourceMessages = useMemo(
+    () => filterRenderableMessages(sourceMessages, inProgress),
+    [inProgress, sourceMessages]
+  );
   const messages = useMemo(
-    () => mergeMessageGroups(initialMessages, historyMessages, sourceMessages),
-    [historyMessages, initialMessages, sourceMessages]
+    () => mergeMessageGroups(initialMessages, renderableHistoryMessages, renderableSourceMessages),
+    [initialMessages, renderableHistoryMessages, renderableSourceMessages]
   );
-  const historyCount = historyMessages.length;
-  const renderableMessages = useMemo(
-    () => messages.filter((message, index) => isRenderableMessage(message, index, messages.length, inProgress)),
-    [inProgress, messages]
-  );
+  const historyCount = renderableHistoryMessages.length;
   const messageRows = useMemo<MessageRowData[]>(
     () =>
-      renderableMessages.map((message, index) => ({
+      messages.map((message, index) => ({
         message,
         messageKey: getMessageKey(message, index),
         relativeIndex: index,
       })),
-    [renderableMessages]
+    [messages]
   );
   const tailKey = messageRows[messageRows.length - 1]?.messageKey ?? "";
   const renderedCount =
@@ -317,7 +346,7 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
       ? renderedRange.endIndex - renderedRange.startIndex + 1
       : 0;
   const savedCount = Math.max(0, messages.length - renderedCount);
-  const liveCount = sourceMessages.length;
+  const liveCount = renderableSourceMessages.length;
   const canRenderVirtuoso = shellHeight > 0;
 
   useEffect(() => {
@@ -529,7 +558,7 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
               message={row.message}
               messageFeedback={messageFeedback}
               messageKey={row.messageKey}
-              messages={renderableMessages}
+              messages={messages}
               onCopy={onCopy}
               onRegenerate={onRegenerate}
               onThumbsDown={onThumbsDown}
@@ -581,7 +610,7 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
                 message={row.message}
                 messageFeedback={messageFeedback}
                 messageKey={row.messageKey}
-                messages={renderableMessages}
+                messages={messages}
                 onCopy={onCopy}
                 onRegenerate={onRegenerate}
                 onThumbsDown={onThumbsDown}

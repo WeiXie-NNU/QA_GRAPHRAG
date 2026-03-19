@@ -31,6 +31,88 @@ interface ChatAreaProps {
   shouldLoadHistory: boolean;
 }
 
+function hasMessageContent(content: unknown): boolean {
+  if (typeof content === "string") {
+    return content.trim().length > 0;
+  }
+
+  if (!Array.isArray(content)) {
+    return false;
+  }
+
+  return content.some((part) => {
+    if (typeof part === "string") {
+      return part.trim().length > 0;
+    }
+
+    if (!part || typeof part !== "object") {
+      return false;
+    }
+
+    if ((part as any).type === "text") {
+      return String((part as any).text ?? "").trim().length > 0;
+    }
+
+    return true;
+  });
+}
+
+function getHistoryAnchorMessageId(messages: any[]): string | null {
+  for (const message of messages) {
+    if (!message || (message.role !== "user" && message.role !== "assistant")) {
+      continue;
+    }
+
+    if (message.name === "coagent-state-render") {
+      continue;
+    }
+
+    const messageId = String(message.id || "").trim();
+    if (!messageId) {
+      continue;
+    }
+
+    if (!hasMessageContent(message.content) && !message.image) {
+      continue;
+    }
+
+    return messageId;
+  }
+
+  return null;
+}
+
+function countVisibleRestoredMessages(messages: any[]): number {
+  const seenIds = new Set<string>();
+  let count = 0;
+
+  for (const message of messages) {
+    if (!message || (message.role !== "user" && message.role !== "assistant")) {
+      continue;
+    }
+
+    if (message.name === "coagent-state-render") {
+      continue;
+    }
+
+    if (!hasMessageContent(message.content) && !message.image) {
+      continue;
+    }
+
+    const messageId = String(message.id || "").trim();
+    if (messageId) {
+      if (seenIds.has(messageId)) {
+        continue;
+      }
+      seenIds.add(messageId);
+    }
+
+    count += 1;
+  }
+
+  return count;
+}
+
 export const ChatArea: React.FC<ChatAreaProps> = ({
   agent,
   threadId,
@@ -52,6 +134,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef<string>("");
   const virtualizedMessagesPropsRef = useRef<Record<string, unknown>>({});
+  const restoredVisibleMessageCount = useMemo(
+    () => countVisibleRestoredMessages(messages as any[]),
+    [messages],
+  );
+  const historyAnchorMessageId = useMemo(
+    () => getHistoryAnchorMessageId(messages as any[]),
+    [messages],
+  );
   const {
     historyMessages,
     hasOlderHistory,
@@ -63,6 +153,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     agent,
     userId,
     enabled: shouldLoadHistory,
+    anchorBeforeMessageId: historyAnchorMessageId,
+    visibleMessageCount: restoredVisibleMessageCount,
   });
   const [perfObserve, setPerfObserve] = useState<boolean>(() => {
     try {

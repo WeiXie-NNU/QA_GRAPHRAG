@@ -44,14 +44,18 @@ export const DefaultUserMessage = ({ message, ImageRenderer }: UserMessageProps)
     const content = getUserTextContent(message?.content as any);
     return (
       <div className="copilotKitMessage copilotKitUserMessage">
-        <ImageRenderer image={imageMessage.image} content={content} />
+        <div className="copilotKitUserMessageBubble copilotKitUserMessageBubbleWithImage">
+          <ImageRenderer image={imageMessage.image} content={content} />
+        </div>
       </div>
     );
   }
 
   return (
     <div className="copilotKitMessage copilotKitUserMessage">
-      {getUserTextContent(message?.content as any)}
+      <div className="copilotKitUserMessageBubble">
+        {getUserTextContent(message?.content as any)}
+      </div>
     </div>
   );
 };
