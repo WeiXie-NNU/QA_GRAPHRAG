@@ -11,7 +11,7 @@
  */
 
 import React, { Suspense, lazy, memo, useCallback, useEffect, useMemo, useState } from "react";
-import type { ProgressData } from "../progress";
+import { ProgressDisplay, type ProgressData } from "../progress";
 import type { EvidenceItem } from "../evidence";
 import { useAgent, useDrawer } from "../../contexts";
 import { useViewportActivation } from "../../hooks/useViewportActivation";
@@ -29,9 +29,6 @@ const LazyGeoVisualization = lazy(() =>
   import("../geo").then((module) => ({ default: module.GeoVisualization }))
 );
 const LazyMarkdownMessage = lazy(() => import("./MarkdownMessage"));
-const LazyProgressDisplay = lazy(() =>
-  import("../progress").then((module) => ({ default: module.ProgressDisplay }))
-);
 const LazyEvidenceChain = lazy(() =>
   import("../evidence").then((module) => ({ default: module.EvidenceChain }))
 );
@@ -62,6 +59,47 @@ interface AssistantMessageProps {
 // 扩展 AgentState 类型
 interface AgentState extends ProgressData {
   evidence_chain?: EvidenceItem[];
+}
+
+function normalizeProgressStep(step: any): ProgressData["steps"][number] {
+  return {
+    description: String(step?.description || "").trim(),
+    status: String(step?.status || "").trim(),
+    updates: Array.isArray(step?.updates)
+      ? step.updates.map((update: unknown) => String(update || "").trim()).filter(Boolean)
+      : [],
+  };
+}
+
+function buildProgressData(
+  persistedState: AgentState | null,
+  runtimeState: any,
+  isCurrentMessage: boolean
+): ProgressData | null {
+  const persistedSteps: ProgressData["steps"] = Array.isArray(persistedState?.steps)
+    ? persistedState.steps
+        .map(normalizeProgressStep)
+        .filter((step: ProgressData["steps"][number]) => step.description)
+    : [];
+  const runtimeSteps: ProgressData["steps"] = Array.isArray(runtimeState?.steps)
+    ? runtimeState.steps
+        .map(normalizeProgressStep)
+        .filter((step: ProgressData["steps"][number]) => step.description)
+    : [];
+
+  if (isCurrentMessage && runtimeSteps.length > 0) {
+    return { steps: runtimeSteps };
+  }
+
+  if (persistedSteps.length > 0) {
+    return { steps: persistedSteps };
+  }
+
+  if (runtimeSteps.length > 0) {
+    return { steps: runtimeSteps };
+  }
+
+  return null;
 }
 
 interface AssistantMessageBaseProps extends AssistantMessageProps {
@@ -155,21 +193,13 @@ const AssistantMessageBase: React.FC<AssistantMessageBaseProps> = ({
   const [enableRichText, setEnableRichText] = useState(false);
   const [enableRichPanels, setEnableRichPanels] = useState(false);
 
-  const hasPersistedProgress = !!agentState?.steps?.length;
   const hasRuntimeActiveStep = !!contextState?.steps?.some((step: any) => {
     const status = step?.status;
     return status === "running" || status === "executing";
   });
   const shouldRenderRuntimeProgress = !!isCurrentMessage;
-  const runtimeProgressData =
-    !hasPersistedProgress &&
-    shouldRenderRuntimeProgress &&
-    (isLoading || runtimeRunning) &&
-    hasRuntimeActiveStep &&
-    contextState?.steps?.length
-      ? { steps: contextState.steps }
-      : null;
-  const progressData = agentState || runtimeProgressData;
+  const progressData = buildProgressData(agentState, contextState, shouldRenderRuntimeProgress);
+  const hasPersistedProgress = !!agentState?.steps?.length;
 
   // 判断是否有实际内容需要显示
   const hasTextContent = textContent && textContent.length > 0;
@@ -198,7 +228,7 @@ const AssistantMessageBase: React.FC<AssistantMessageBaseProps> = ({
   const hasGeoDataId = !!agentDataIds?.geoDataId;
   const shouldDelayRichText = !isStreaming && textContent.length >= LONG_MESSAGE_THRESHOLD;
   const shouldUsePlainText = isStreaming || !enableRichText;
-  const hasDeferredPanels = hasAgentState || hasEvidenceChain;
+  const hasDeferredPanels = hasEvidenceChain;
 
   useEffect(() => {
     if (!textContent) {
@@ -355,10 +385,11 @@ const AssistantMessageBase: React.FC<AssistantMessageBaseProps> = ({
       {/* 内容区域 */}
       <div className="assistant-content">
         {/* 进度条（如果有智能体状态） */}
-        {hasAgentState && enableRichPanels && (
-          <Suspense fallback={null}>
-            <LazyProgressDisplay progressData={progressData as ProgressData} />
-          </Suspense>
+        {hasAgentState && (
+          <ProgressDisplay
+            progressData={progressData as ProgressData}
+            isActive={shouldRenderRuntimeProgress && (isLoading || runtimeRunning || hasRuntimeActiveStep)}
+          />
         )}
 
         {/* 文本内容 - 使用 Markdown 渲染 */}

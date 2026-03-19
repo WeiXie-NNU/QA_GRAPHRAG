@@ -151,7 +151,8 @@ function buildSummaryLines(value: InterruptValue, formState: ReviewFormState): s
 export const HITLInterruptCard: React.FC<{
   eventValue: unknown;
   resolve: (value: any) => void;
-}> = ({ eventValue, resolve }) => {
+  summaryMode?: "inline" | "floating" | "hidden";
+}> = ({ eventValue, resolve, summaryMode = "inline" }) => {
   const value = useMemo(() => parseInterruptValue(eventValue), [eventValue]);
   const interruptKey = useMemo(() => JSON.stringify(value), [value]);
   const task = String(value.task || "请人工确认");
@@ -505,50 +506,54 @@ export const HITLInterruptCard: React.FC<{
 
   return (
     <>
-      <div className="hitl-card">
-        <div className="hitl-card-header">
-          <div className="hitl-card-heading">
-            <span className="hitl-card-badge">HITL</span>
-            <span className="hitl-card-title">人工审核</span>
+      {summaryMode !== "hidden" ? (
+        <div className={summaryMode === "floating" ? "hitl-floating-anchor" : undefined}>
+          <div className="hitl-card">
+            <div className="hitl-card-header">
+              <div className="hitl-card-heading">
+                <span className="hitl-card-badge">HITL</span>
+                <span className="hitl-card-title">人工审核</span>
+              </div>
+              <span className="hitl-status-pill">待处理</span>
+            </div>
+
+            <div className="hitl-card-task">{task}</div>
+            <div className="hitl-card-summary">{resourceHint}</div>
+
+            {summaryLines.length ? (
+              <div className="hitl-card-meta">
+                {summaryLines.map((line) => (
+                  <span key={line} className="hitl-meta-chip">
+                    {line}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+
+            {!!(requiredFields.length || missingFields.length) && (
+              <div className="hitl-card-tags">
+                {requiredFields.map((field) => (
+                  <span key={field} className="hitl-tag">
+                    {field}
+                  </span>
+                ))}
+                {missingFields.map((field) => (
+                  <span key={`missing-${field}`} className="hitl-tag missing">
+                    缺失 {field}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="hitl-card-inline-actions">
+              <button type="button" className="hitl-btn primary" onClick={() => setIsDrawerOpen(true)}>
+                打开审核面板
+              </button>
+              <span className="hitl-inline-note">处理中断前，聊天输入会暂时锁定。</span>
+            </div>
           </div>
-          <span className="hitl-status-pill">待处理</span>
         </div>
-
-        <div className="hitl-card-task">{task}</div>
-        <div className="hitl-card-summary">{resourceHint}</div>
-
-        {summaryLines.length ? (
-          <div className="hitl-card-meta">
-            {summaryLines.map((line) => (
-              <span key={line} className="hitl-meta-chip">
-                {line}
-              </span>
-            ))}
-          </div>
-        ) : null}
-
-        {!!(requiredFields.length || missingFields.length) && (
-          <div className="hitl-card-tags">
-            {requiredFields.map((field) => (
-              <span key={field} className="hitl-tag">
-                {field}
-              </span>
-            ))}
-            {missingFields.map((field) => (
-              <span key={`missing-${field}`} className="hitl-tag missing">
-                缺失 {field}
-              </span>
-            ))}
-          </div>
-        )}
-
-        <div className="hitl-card-inline-actions">
-          <button type="button" className="hitl-btn primary" onClick={() => setIsDrawerOpen(true)}>
-            打开审核面板
-          </button>
-          <span className="hitl-inline-note">处理中断前，聊天输入会暂时锁定。</span>
-        </div>
-      </div>
+      ) : null}
 
       {isDrawerOpen ? (
         <>

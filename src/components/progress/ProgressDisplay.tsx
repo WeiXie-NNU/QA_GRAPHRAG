@@ -13,12 +13,12 @@ export interface ProgressData {
 
 interface ProgressDisplayProps {
   progressData: ProgressData;
+  isActive?: boolean;
 }
 
 type NormalizedStepState = "running" | "completed" | "failed" | "idle";
 
 interface NormalizedStep {
-  index: number;
   description: string;
   updates: string[];
   state: NormalizedStepState;
@@ -36,28 +36,34 @@ function cleanUpdateText(text: string): string {
   return text.replace(/^[✓√✔\s]+/, "").trim();
 }
 
+function cleanStepDescription(text: string): string {
+  return String(text || "")
+    .replace(/^[^A-Za-z0-9\u4e00-\u9fa5]+/u, "")
+    .trim();
+}
+
 function getVisibleSteps(steps: Step[]): NormalizedStep[] {
   return steps
-    .map((step, index) => ({
-      index,
-      description: String(step.description || "").trim(),
+    .map((step) => ({
+      description: cleanStepDescription(step.description || ""),
       updates: (step.updates || []).map(cleanUpdateText).filter(Boolean),
       state: normalizeStepState(step.status),
     }))
-    .filter((step) => {
-      if (!step.description) return false;
-      return step.state !== "idle";
-    });
+    .filter((step) => step.description && step.state !== "idle");
 }
 
 function getSummaryStep(steps: NormalizedStep[]): NormalizedStep | null {
-  if (!steps.length) return null;
+  if (!steps.length) {
+    return null;
+  }
 
-  const activeStep = steps.find((step) => step.state === "running");
-  if (activeStep) return activeStep;
+  const runningStep = steps.find((step) => step.state === "running");
+  if (runningStep) {
+    return runningStep;
+  }
 
-  for (let i = steps.length - 1; i >= 0; i -= 1) {
-    const step = steps[i];
+  for (let index = steps.length - 1; index >= 0; index -= 1) {
+    const step = steps[index];
     if (step.state === "failed" || step.state === "completed") {
       return step;
     }
@@ -66,49 +72,39 @@ function getSummaryStep(steps: NormalizedStep[]): NormalizedStep | null {
   return steps[steps.length - 1];
 }
 
-function getSummaryLabel(step: NormalizedStep, hasMultipleSteps: boolean): string {
-  if (step.state === "running") {
-    return hasMultipleSteps ? "正在处理" : "处理中";
-  }
-  if (step.state === "failed") {
-    return "执行异常";
-  }
-  return "流程完成";
-}
-
 function getSummaryDetail(step: NormalizedStep): string {
   if (step.updates.length > 0) {
     return step.updates[step.updates.length - 1];
   }
 
-  if (step.state === "running") {
-    return "智能体正在继续处理当前节点";
-  }
   if (step.state === "failed") {
-    return "该节点执行失败，请展开查看上下文";
+    return "节点执行异常";
   }
-  return "点击可查看完整处理链路";
+
+  return step.description;
 }
 
-function StatusGlyph({ state }: { state: NormalizedStepState }) {
-  if (state === "running") {
+function StatusGlyph({ state, isActive }: { state: NormalizedStepState; isActive: boolean }) {
+  if (state === "running" && isActive) {
     return (
-      <span className="progress-summary-icon progress-summary-icon-running" aria-hidden="true">
-        <span className="progress-spinner-ring" />
+      <span className="progress-glyph progress-glyph-running" aria-hidden="true">
+        <span className="progress-glyph-spinner" />
       </span>
     );
   }
 
   if (state === "failed") {
     return (
-      <span className="progress-summary-icon progress-summary-icon-failed" aria-hidden="true">
-        !
+      <span className="progress-glyph progress-glyph-failed" aria-hidden="true">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.2">
+          <path d="M5 5 11 11M11 5 5 11" strokeLinecap="round" />
+        </svg>
       </span>
     );
   }
 
   return (
-    <span className="progress-summary-icon progress-summary-icon-completed" aria-hidden="true">
+    <span className="progress-glyph progress-glyph-completed" aria-hidden="true">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.2">
         <path d="M3.5 8.5 6.5 11.2 12.5 4.8" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
@@ -116,88 +112,66 @@ function StatusGlyph({ state }: { state: NormalizedStepState }) {
   );
 }
 
-export const ProgressDisplay: React.FC<ProgressDisplayProps> = ({ progressData }) => {
+export const ProgressDisplay: React.FC<ProgressDisplayProps> = ({
+  progressData,
+  isActive = false,
+}) => {
   const [isExpanded, setIsExpanded] = useState(false);
-
-  const visibleSteps = useMemo(
-    () => getVisibleSteps(progressData?.steps || []),
-    [progressData?.steps],
-  );
-
-  const summaryStep = useMemo(
-    () => getSummaryStep(visibleSteps),
-    [visibleSteps],
-  );
+  const visibleSteps = useMemo(() => getVisibleSteps(progressData?.steps || []), [progressData?.steps]);
+  const summaryStep = useMemo(() => getSummaryStep(visibleSteps), [visibleSteps]);
 
   if (!summaryStep) {
     return null;
   }
 
-  const hasMultipleSteps = visibleSteps.length > 1;
-  const summaryLabel = getSummaryLabel(summaryStep, hasMultipleSteps);
+  const effectiveState =
+    summaryStep.state === "running" && !isActive ? "completed" : summaryStep.state;
   const summaryDetail = getSummaryDetail(summaryStep);
-  const canExpand = hasMultipleSteps || visibleSteps.some((step) => step.updates.length > 0);
+  const canExpand = visibleSteps.length > 1 || visibleSteps.some((step) => step.updates.length > 0);
 
   return (
-    <section className="progress-card" data-test-id="progress-steps">
+    <section
+      className={`progress-summary-card is-${effectiveState}`}
+      data-test-id="progress-steps"
+    >
       <button
         type="button"
-        className={`progress-summary ${isExpanded ? "expanded" : ""}`}
+        className={`progress-summary-card-shell ${isExpanded ? "expanded" : ""}`}
         onClick={() => canExpand && setIsExpanded((prev) => !prev)}
         aria-expanded={canExpand ? isExpanded : undefined}
         disabled={!canExpand}
       >
-        <div className="progress-summary-main">
-          <StatusGlyph state={summaryStep.state} />
-          <div className="progress-summary-copy">
-            <div className="progress-summary-topline">
-              <span className={`progress-summary-status is-${summaryStep.state}`}>{summaryLabel}</span>
-              <span className="progress-summary-divider" aria-hidden="true" />
-              <span className="progress-summary-step">{summaryStep.description}</span>
-            </div>
-            <div className="progress-summary-detail">{summaryDetail}</div>
+        <StatusGlyph state={effectiveState} isActive={isActive} />
+        <div className="progress-summary-card-copy">
+          <div className="progress-summary-card-title">{summaryStep.description}</div>
+          <div className="progress-summary-card-detail" title={summaryDetail}>
+            {summaryDetail}
           </div>
         </div>
         {canExpand ? (
-          <span className={`progress-summary-toggle ${isExpanded ? "expanded" : ""}`} aria-hidden="true">
+          <span className={`progress-summary-card-toggle ${isExpanded ? "expanded" : ""}`} aria-hidden="true">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="m4 6 4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </span>
         ) : null}
       </button>
-
       {canExpand && isExpanded ? (
         <div className="progress-detail-list">
-          {visibleSteps.map((step, index) => (
-            <div key={`${step.index}-${step.description}`} className={`progress-detail-item is-${step.state}`}>
-              <div className="progress-detail-rail" aria-hidden="true">
-                <span className={`progress-detail-dot is-${step.state}`} />
-                {index < visibleSteps.length - 1 ? <span className="progress-detail-line" /> : null}
-              </div>
-              <div className="progress-detail-body">
-                <div className="progress-detail-head">
-                  <span className="progress-detail-title">{step.description}</span>
-                  <span className={`progress-detail-badge is-${step.state}`}>
-                    {step.state === "running"
-                      ? "处理中"
-                      : step.state === "failed"
-                        ? "异常"
-                        : "完成"}
-                  </span>
-                </div>
-                {step.updates.length > 0 ? (
-                  <div className="progress-detail-updates">
-                    {step.updates.map((update, updateIndex) => (
-                      <div key={`${step.index}-${updateIndex}`} className="progress-detail-update">
-                        {update}
-                      </div>
-                    ))}
+          {visibleSteps.map((step, index) => {
+            const detail = getSummaryDetail(step);
+
+            return (
+              <div key={`${step.description}-${index}`} className={`progress-detail-item is-${step.state}`}>
+                <div className="progress-detail-title">{step.description}</div>
+                {detail && detail !== step.description ? (
+                  <div className="progress-detail-note" title={detail}>
+                    {detail}
                   </div>
                 ) : null}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : null}
     </section>

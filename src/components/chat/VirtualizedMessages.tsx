@@ -35,31 +35,76 @@ function getComparableMessageId(message: Message): string {
   return rawId == null ? "" : String(rawId);
 }
 
-function mergeMessageGroups(...groups: Message[][]): Message[] {
-  const merged: Message[] = [];
-  const indexByStableId = new Map<string, number>();
+function buildAssistantTurnKey(message: Message, previousUserMessageId: string): string {
+  const rawId = getComparableMessageId(message);
+  if (rawId.startsWith("assistant:")) {
+    return `assistant-turn:${rawId.slice("assistant:".length)}`;
+  }
+
+  if (previousUserMessageId) {
+    return `assistant-turn:${previousUserMessageId}`;
+  }
+
+  if (rawId) {
+    return `assistant:${rawId}`;
+  }
+
+  return `assistant:${String((message as any)?.content ?? "")}`;
+}
+
+function buildMergeRows(groups: Message[][]): Array<{ message: Message; mergeKey: string }> {
+  const rows: Array<{ message: Message; mergeKey: string }> = [];
 
   groups.forEach((group) => {
-    group.forEach((message) => {
+    let previousUserMessageId = "";
+
+    group.forEach((message, index) => {
       if (!message) {
         return;
       }
 
-      const stableId = getComparableMessageId(message);
-      if (stableId) {
-        const existingIndex = indexByStableId.get(stableId);
-        if (existingIndex != null) {
-          merged[existingIndex] = message;
-          return;
-        }
-
-        indexByStableId.set(stableId, merged.length);
-        merged.push(message);
+      const rawId = getComparableMessageId(message);
+      if (message.role === "user") {
+        previousUserMessageId = rawId || `user-index:${index}`;
+        rows.push({
+          message,
+          mergeKey: rawId ? `user:${rawId}` : `user:${index}:${String((message as any)?.content ?? "")}`,
+        });
         return;
       }
 
-      merged.push(message);
+      if (message.role === "assistant") {
+        rows.push({
+          message,
+          mergeKey: buildAssistantTurnKey(message, previousUserMessageId),
+        });
+        return;
+      }
+
+      rows.push({
+        message,
+        mergeKey: rawId ? `${String(message.role)}:${rawId}` : `${String(message.role)}:${index}`,
+      });
     });
+  });
+
+  return rows;
+}
+
+function mergeMessageGroups(...groups: Message[][]): Message[] {
+  const merged: Message[] = [];
+  const indexByStableId = new Map<string, number>();
+  const rows = buildMergeRows(groups);
+
+  rows.forEach(({ message, mergeKey }) => {
+    const existingIndex = indexByStableId.get(mergeKey);
+    if (existingIndex != null) {
+      merged[existingIndex] = message;
+      return;
+    }
+
+    indexByStableId.set(mergeKey, merged.length);
+    merged.push(message);
   });
 
   return merged;
@@ -136,7 +181,6 @@ type VirtualizedMessagesProps = MessagesProps & {
   hasOlderHistory?: boolean;
   isLoadingOlderHistory?: boolean;
   initialMessages?: string | string[];
-  interruptElement?: React.ReactNode;
   onLoadOlderHistory?: () => void | Promise<void>;
   threadKey?: string;
 };
@@ -294,7 +338,6 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
   hasOlderHistory = false,
   isLoadingOlderHistory = false,
   initialMessages: initialContent,
-  interruptElement,
   onLoadOlderHistory,
   threadKey = "",
 }) => {
@@ -431,20 +474,6 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
       });
     }
   }, [inProgress, messageRows.length, tailKey]);
-
-  useEffect(() => {
-    if (!interruptElement || messageRows.length === 0) {
-      return;
-    }
-
-    requestAnimationFrame(() => {
-      virtuosoRef.current?.scrollToIndex({
-        index: messageRows.length - 1,
-        align: "end",
-        behavior: "auto",
-      });
-    });
-  }, [interruptElement, messageRows.length]);
 
   const triggerLoadOlder = useCallback(() => {
     if (!hasOlderHistory || isLoadingOlderHistory || loadOlderInFlightRef.current || !onLoadOlderHistory) {
@@ -627,11 +656,6 @@ export const VirtualizedMessages: React.FC<VirtualizedMessagesProps> = ({
           </div>
         </div>
       )}
-      {interruptElement ? (
-        <div className="copilotKitInterruptFooter">
-          <div className="copilotKitInterruptCardWrap">{interruptElement}</div>
-        </div>
-      ) : null}
     </div>
   );
 };

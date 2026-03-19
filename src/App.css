@@ -1400,6 +1400,29 @@ a[href*="copilotkit"],
   justify-content: center;
 }
 
+.copilotKitGlobalInterruptHost {
+  position: absolute;
+  inset: 0;
+  z-index: 300;
+  pointer-events: none;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  padding: 0 24px 104px;
+}
+
+.copilotKitGlobalInterruptHost .hitl-floating-anchor,
+.copilotKitGlobalInterruptHost .hitl-drawer-backdrop,
+.copilotKitGlobalInterruptHost .hitl-drawer {
+  pointer-events: auto;
+}
+
+.hitl-floating-anchor {
+  position: relative;
+  width: min(520px, calc(100vw - 48px));
+  z-index: 319;
+}
+
 .hitl-card {
   width: 100%;
   display: flex;
@@ -1756,6 +1779,14 @@ a[href*="copilotkit"],
 @media (max-width: 640px) {
   .copilotKitInterruptFooter {
     padding: 0 16px 16px;
+  }
+
+  .hitl-floating-anchor {
+    width: calc(100vw - 32px);
+  }
+
+  .copilotKitGlobalInterruptHost {
+    padding: 0 16px 92px;
   }
 
   .copilotKitUserMessage {

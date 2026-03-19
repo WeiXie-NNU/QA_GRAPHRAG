@@ -2,7 +2,6 @@ import React, { useEffect, useCallback, useMemo, useRef, useState } from "react"
 import {
   useCopilotAdditionalInstructions,
   useCopilotChatInternal,
-  useLangGraphInterrupt,
 } from "@copilotkit/react-core";
 import { randomUUID } from "@copilotkit/shared";
 import { AssistantMessage } from "./AssistantMessage";
@@ -15,7 +14,6 @@ import {
 import { VirtualizedMessages } from "./VirtualizedMessages";
 import { useThreadHistory } from "./useThreadHistory";
 import { ModelSelector } from "./ModelSelector";
-import { HITLInterruptCard } from "./HITLInterruptCard";
 import { useAgent } from "../../contexts";
 import { CHAT_INSTRUCTIONS } from "../../lib/consts";
 import type { AgentType } from "../../lib/consts";
@@ -133,7 +131,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const hasPendingInterrupt = Boolean(interrupt);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef<string>("");
-  const virtualizedMessagesPropsRef = useRef<Record<string, unknown>>({});
   const restoredVisibleMessageCount = useMemo(
     () => countVisibleRestoredMessages(messages as any[]),
     [messages],
@@ -174,26 +171,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     });
   }, []);
 
-  virtualizedMessagesPropsRef.current = {
-    perfEnabled: perfObserve,
-    historyMessages: historyMessages as any,
-    hasOlderHistory,
-    isLoadingOlderHistory: isLoadingOlderHistory || isHistoryLoading,
-    initialMessages: "",
-    interruptElement: interrupt,
-    onLoadOlderHistory: loadOlderHistory,
-    threadKey: threadId,
-  };
-
-  const MessagesWithPerf = useMemo(() => {
-    return (props: any) => (
-      <VirtualizedMessages
-        {...props}
-        {...(virtualizedMessagesPropsRef.current as any)}
-      />
-    );
-  }, []);
-
   useEffect(() => {
     if (!agentState?.steps?.length) return;
 
@@ -217,12 +194,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
   }, [agentState, running, threadId]);
-
-  useLangGraphInterrupt({
-    render: ({ event, resolve }) => {
-      return <HITLInterruptCard eventValue={event?.value} resolve={resolve as any} />;
-    },
-  }, [threadId]);
 
   const handleSendMessage = useCallback(
     async (content: string) => {
@@ -267,13 +238,20 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
 
       <div className="chat-container">
         <div className="copilotKitChat">
-          <MessagesWithPerf
+          <VirtualizedMessages
             messages={messages as any}
             inProgress={isLoading}
             RenderMessage={DefaultRenderMessage as any}
             AssistantMessage={AssistantMessage as any}
             UserMessage={DefaultUserMessage as any}
             ImageRenderer={DefaultImageRenderer as any}
+            perfEnabled={perfObserve}
+            historyMessages={historyMessages as any}
+            hasOlderHistory={hasOlderHistory}
+            isLoadingOlderHistory={isLoadingOlderHistory || isHistoryLoading}
+            initialMessages=""
+            onLoadOlderHistory={loadOlderHistory}
+            threadKey={threadId}
           />
           <ChatComposer
             disabled={!connectedAgent || hasPendingInterrupt}
