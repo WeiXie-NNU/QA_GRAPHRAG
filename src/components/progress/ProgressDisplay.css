@@ -1,211 +1,318 @@
-/**
- * 进度显示组件样式 - 简洁版
- * 模仿 open-research-ANA 项目的进度条样式
- */
-
-/* 容器 */
-.progress-container {
-  padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+.progress-card {
+  margin: 12px 0 14px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0.9) 0%, rgba(255, 255, 255, 0.98) 100%);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+  overflow: hidden;
 }
 
-/* 进度列表 */
-.progress-list {
+.progress-summary {
+  width: 100%;
   display: flex;
-  flex-direction: column;
-}
-
-/* 单个步骤 */
-.progress-step {
-  display: flex;
-  gap: 12px;
-  position: relative;
-  animation: stepAppear 0.3s ease-out;
-}
-
-@keyframes stepAppear {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* 左侧状态指示器区域 */
-.step-indicator {
-  display: flex;
-  flex-direction: column;
   align-items: center;
-  flex-shrink: 0;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
-/* 状态圆圈 */
-.step-circle {
+.progress-summary:disabled {
+  cursor: default;
+}
+
+.progress-summary:not(:disabled):hover {
+  background: rgba(248, 250, 252, 0.78);
+}
+
+.progress-summary-main {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1;
+}
+
+.progress-summary-icon {
   width: 24px;
   height: 24px;
-  border-radius: 50%;
-  display: flex;
+  min-width: 24px;
+  border-radius: 999px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: rgba(100, 100, 100, 0.3);
-  border: 2px solid rgba(150, 150, 150, 0.4);
-  transition: all 0.3s ease;
+  margin-top: 1px;
 }
 
-.step-circle.done {
-  background: rgba(74, 222, 128, 0.2);
-  border-color: #4ade80;
+.progress-summary-icon-running {
+  color: #0f766e;
+  background: rgba(204, 251, 241, 0.9);
 }
 
-.step-circle.running {
-  background: rgba(251, 191, 36, 0.2);
-  border-color: #fbbf24;
+.progress-summary-icon-completed {
+  color: #1d4ed8;
+  background: rgba(219, 234, 254, 0.9);
 }
 
-.step-circle.failed {
-  background: rgba(239, 68, 68, 0.2);
-  border-color: #ef4444;
-}
-
-/* 勾选图标 */
-.check-icon {
+.progress-summary-icon-completed svg {
   width: 14px;
   height: 14px;
-  color: #4ade80;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
-/* 错误图标 */
-.error-icon {
-  color: #ef4444;
-  font-size: 12px;
-  font-weight: bold;
+.progress-summary-icon-failed {
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.92);
+  font-size: 14px;
+  font-weight: 700;
 }
 
-/* 加载旋转器 */
-.spinner {
+.progress-spinner-ring {
   width: 12px;
   height: 12px;
-  border: 2px solid rgba(251, 191, 36, 0.3);
-  border-top-color: #fbbf24;
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+  border-radius: 999px;
+  border: 2px solid rgba(15, 118, 110, 0.18);
+  border-top-color: currentColor;
+  animation: progress-spin 0.85s linear infinite;
 }
 
-@keyframes spin {
+@keyframes progress-spin {
   to {
     transform: rotate(360deg);
   }
 }
 
-/* 连接线 */
-.step-line {
-  width: 2px;
-  flex-grow: 1;
-  min-height: 20px;
-  background: rgba(150, 150, 150, 0.3);
-  margin: 4px 0;
-  transition: background 0.3s ease;
+.progress-summary-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
-.step-line.done {
-  background: rgba(74, 222, 128, 0.5);
-}
-
-/* 右侧内容区域 */
-.step-content {
-  flex: 1;
-  padding-bottom: 16px;
+.progress-summary-topline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
 }
 
-.progress-step:last-child .step-content {
-  padding-bottom: 0;
+.progress-summary-status {
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
-/* 步骤标题行 */
-.step-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+.progress-summary-status.is-running {
+  color: #0f766e;
 }
 
-.step-header.clickable {
-  cursor: pointer;
-  user-select: none;
+.progress-summary-status.is-completed {
+  color: #1d4ed8;
 }
 
-.step-header.clickable:hover .step-text {
-  opacity: 0.8;
+.progress-summary-status.is-failed {
+  color: #b91c1c;
 }
 
-/* 折叠箭头 */
-.step-toggle {
-  font-size: 10px;
-  color: #808080;
-  transition: transform 0.2s ease;
+.progress-summary-divider {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.7);
   flex-shrink: 0;
 }
 
-.step-toggle.expanded {
+.progress-summary-step {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  line-height: 1.4;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.progress-summary-detail {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.progress-summary-toggle {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #64748b;
+  background: rgba(241, 245, 249, 0.9);
+  transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease;
+}
+
+.progress-summary-toggle svg {
+  width: 14px;
+  height: 14px;
+}
+
+.progress-summary.expanded .progress-summary-toggle {
   transform: rotate(180deg);
+  background: rgba(226, 232, 240, 0.9);
+  color: #334155;
 }
 
-/* 步骤文字 */
-.step-text {
-  font-size: 13px;
-  color: #e0e0e0;
-  line-height: 24px;
-  font-weight: 400;
-  flex: 1;
+.progress-detail-list {
+  padding: 0 16px 16px;
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+  background: rgba(248, 250, 252, 0.6);
 }
 
-.progress-step.done .step-text {
-  color: #a0a0a0;
+.progress-detail-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 12px;
 }
 
-.progress-step.running .step-text {
-  color: #fbbf24;
-  font-weight: 500;
+.progress-detail-item + .progress-detail-item {
+  margin-top: 12px;
 }
 
-.progress-step.failed .step-text {
-  color: #ef4444;
-}
-
-/* 子更新信息 */
-.step-updates {
-  margin-top: 8px;
-  margin-left: 4px;
-  padding-left: 12px;
-  border-left: 2px solid rgba(150, 150, 150, 0.2);
+.progress-detail-rail {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  animation: expandIn 0.2s ease-out;
+  align-items: center;
 }
 
-@keyframes expandIn {
-  from {
-    opacity: 0;
-    max-height: 0;
-  }
-  to {
-    opacity: 1;
-    max-height: 500px;
-  }
+.progress-detail-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  margin-top: 3px;
+  background: #cbd5e1;
 }
 
-.step-update {
-  font-size: 12px;
-  color: #909090;
+.progress-detail-dot.is-running {
+  background: #0f766e;
+  box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.12);
+}
+
+.progress-detail-dot.is-completed {
+  background: #2563eb;
+}
+
+.progress-detail-dot.is-failed {
+  background: #dc2626;
+}
+
+.progress-detail-line {
+  width: 1px;
+  flex: 1;
+  min-height: 24px;
+  margin-top: 6px;
+  background: rgba(203, 213, 225, 0.9);
+}
+
+.progress-detail-body {
+  min-width: 0;
+  padding-top: 1px;
+}
+
+.progress-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.progress-detail-title {
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.progress-detail-badge {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.progress-detail-badge.is-running {
+  color: #0f766e;
+  background: rgba(204, 251, 241, 0.88);
+}
+
+.progress-detail-badge.is-completed {
+  color: #1d4ed8;
+  background: rgba(219, 234, 254, 0.88);
+}
+
+.progress-detail-badge.is-failed {
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.9);
+}
+
+.progress-detail-updates {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.progress-detail-update {
+  font-size: 13px;
   line-height: 1.5;
-  padding: 2px 0;
+  color: #475569;
+  padding-left: 12px;
+  position: relative;
+}
+
+.progress-detail-update::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.72);
+}
+
+@media (max-width: 640px) {
+  .progress-summary {
+    padding: 12px 14px;
+  }
+
+  .progress-summary-topline {
+    gap: 6px;
+  }
+
+  .progress-summary-step {
+    font-size: 14px;
+  }
+
+  .progress-detail-list {
+    padding: 0 14px 14px;
+  }
+
+  .progress-detail-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
