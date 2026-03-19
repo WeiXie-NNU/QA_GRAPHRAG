@@ -18,7 +18,7 @@ from .repository_registry import get_repository
 
 def _kg_output_dir(kg_id: str) -> Optional[Path]:
     repo = get_repository(kg_id)
-    if not repo:
+    if not repo or not repo.available:
         return None
     return repo.kg_output_dir
 
@@ -32,9 +32,10 @@ def get_available_kgs() -> List[Dict[str, Any]]:
     """
     kgs = []
     for kg_id in ("prosail", "lue"):
-        output = _kg_output_dir(kg_id)
-        output = output if output else Path("")
-        enabled = output.exists() and (output / "entities.parquet").exists()
+        repo = get_repository(kg_id)
+        output = repo.kg_output_dir if repo else Path("")
+        enabled = bool(repo and repo.available)
+        status_reason = repo.status_reason if repo else "repository not found"
         if kg_id == "prosail":
             name = "PROSAIL 植被辐射传输模型"
             desc = "PROSAIL 辐射传输模型参数知识图谱，包含叶片生化参数和冠层结构参数"
@@ -49,6 +50,7 @@ def get_available_kgs() -> List[Dict[str, Any]]:
             "description": desc,
             "path": str(output),
             "enabled": enabled,
+            "status_reason": status_reason,
         })
     return kgs
 

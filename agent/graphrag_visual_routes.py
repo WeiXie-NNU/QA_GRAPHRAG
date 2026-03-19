@@ -95,6 +95,8 @@ def register_graphrag_visual_routes(
         repo = get_repository(kg_id)
         if not repo:
             raise ValueError(f"未知知识仓库: {kg_id}")
+        if not repo.available:
+            raise ValueError(f"知识仓库不可用: {kg_id} ({repo.status_reason})")
         return repo.kg_output_dir
 
     @app.get("/api/graphrag/data")

@@ -1,8 +1,17 @@
 """
-模型知识仓库注册与路径解析。
+模型知识仓库注册与 GraphRAG 标准产物发现。
 
-统一目录结构：
-- resources/repositories/<MODEL>/...
+本模块只负责发现和描述已经构建好的 GraphRAG 仓库，不负责建图。
+
+支持两种常见目录布局：
+
+1. resources/repositories/<MODEL>/
+   - settings.yaml
+   - output/
+
+2. resources/repositories/<MODEL>/kg/
+   - settings.yaml
+   - output/
 """
 
 from __future__ import annotations
@@ -35,20 +44,46 @@ MODEL_DIR_MAP: Dict[str, str] = {
     "lue": "LUE",
 }
 
+REQUIRED_OUTPUT_FILES = (
+    "entities.parquet",
+    "relationships.parquet",
+    "communities.parquet",
+    "text_units.parquet",
+)
+
+GLOBAL_SEARCH_REQUIRED_FILES = REQUIRED_OUTPUT_FILES
+LOCAL_SEARCH_REQUIRED_FILES = GLOBAL_SEARCH_REQUIRED_FILES + ("lancedb",)
+
+
+@dataclass(frozen=True)
+class GraphArtifactLayout:
+    name: str
+    graph_root: Path
+    output_dir: Path
+    settings_file: Path
+    env_file: Path
+
 
 @dataclass(frozen=True)
 class ModelRepository:
     model_id: str
     model_dir: Path
+    graph_root: Path
     kg_dir: Path
     kg_output_dir: Path
     settings_file: Path
     env_file: Path
     cases_csv: Path
     papers_dir: Path
+    layout_name: str
+    available: bool
+    supports_global_search: bool
+    supports_local_search: bool
+    missing_required_files: List[str]
+    status_reason: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class KnowledgeGraph:
     id: str
     name: str
@@ -56,9 +91,17 @@ class KnowledgeGraph:
     capability: str
     keywords: List[str]
     output_dir: Path
+    settings_file: Path
     env_file: Optional[Path]
     enabled: bool = True
     priority: int = 0
+    available: bool = False
+    supports_global_search: bool = False
+    supports_local_search: bool = False
+    status_reason: str = ""
+
+
+KnowledgeGraphType = Literal["prosail", "lue", "none"]
 
 
 def normalize_model_id(model_id: Optional[str]) -> str:
@@ -77,6 +120,72 @@ def _registry_file_path() -> Path:
     return get_repository_root() / "registry.json"
 
 
+def _layout_candidates(model_dir: Path) -> List[GraphArtifactLayout]:
+    return [
+        GraphArtifactLayout(
+            name="repo_root",
+            graph_root=model_dir,
+            output_dir=model_dir / "output",
+            settings_file=model_dir / "settings.yaml",
+            env_file=model_dir / ".env",
+        ),
+        GraphArtifactLayout(
+            name="kg_subdir",
+            graph_root=model_dir / "kg",
+            output_dir=model_dir / "kg" / "output",
+            settings_file=model_dir / "kg" / "settings.yaml",
+            env_file=model_dir / "kg" / ".env",
+        ),
+    ]
+
+
+def _score_layout(layout: GraphArtifactLayout) -> int:
+    score = 0
+    if layout.graph_root.exists():
+        score += 1
+    if layout.output_dir.exists():
+        score += 2
+    if layout.settings_file.exists():
+        score += 4
+    for name in REQUIRED_OUTPUT_FILES:
+        if (layout.output_dir / name).exists():
+            score += 2
+    if (layout.output_dir / "community_reports.parquet").exists():
+        score += 1
+    if (layout.output_dir / "lancedb").exists():
+        score += 1
+    return score
+
+
+def _pick_best_layout(model_dir: Path) -> GraphArtifactLayout:
+    candidates = _layout_candidates(model_dir)
+    return max(candidates, key=_score_layout)
+
+
+def _missing_output_items(output_dir: Path, names: tuple[str, ...]) -> List[str]:
+    missing: List[str] = []
+    for name in names:
+        path = output_dir / name
+        if not path.exists():
+            missing.append(name)
+    return missing
+
+
+def _build_status_reason(
+    settings_file: Path,
+    missing_required: List[str],
+    supports_global_search: bool,
+    supports_local_search: bool,
+) -> str:
+    issues: List[str] = []
+    if not settings_file.exists():
+        issues.append("missing settings.yaml")
+    issues.extend(f"missing {name}" for name in missing_required)
+    if supports_global_search and not supports_local_search:
+        issues.append("local search disabled: missing lancedb")
+    return ", ".join(issues) if issues else "ready"
+
+
 def _build_repository(model_id: str) -> Optional[ModelRepository]:
     normalized = normalize_model_id(model_id)
     dir_name = MODEL_DIR_MAP.get(normalized, normalized.upper())
@@ -84,25 +193,33 @@ def _build_repository(model_id: str) -> Optional[ModelRepository]:
     if not model_dir.exists():
         return None
 
-    kg_dir = model_dir / "kg"
-    if not kg_dir.exists():
-        kg_dir = model_dir
-
-    kg_output_dir = kg_dir / "output"
-    settings_file = kg_dir / "settings.yaml"
-    env_file = kg_dir / ".env"
-    cases_csv = model_dir / "parameters.csv"
-    papers_dir = model_dir / "paper_pdf"
+    layout = _pick_best_layout(model_dir)
+    missing_required = _missing_output_items(layout.output_dir, GLOBAL_SEARCH_REQUIRED_FILES)
+    supports_global_search = layout.settings_file.exists() and not missing_required
+    supports_local_search = supports_global_search and (layout.output_dir / "lancedb").exists()
+    available = supports_global_search
 
     return ModelRepository(
         model_id=normalized,
         model_dir=model_dir,
-        kg_dir=kg_dir,
-        kg_output_dir=kg_output_dir,
-        settings_file=settings_file,
-        env_file=env_file,
-        cases_csv=cases_csv,
-        papers_dir=papers_dir,
+        graph_root=layout.graph_root,
+        kg_dir=layout.graph_root,
+        kg_output_dir=layout.output_dir,
+        settings_file=layout.settings_file,
+        env_file=layout.env_file,
+        cases_csv=model_dir / "parameters.csv",
+        papers_dir=model_dir / "paper_pdf",
+        layout_name=layout.name,
+        available=available,
+        supports_global_search=supports_global_search,
+        supports_local_search=supports_local_search,
+        missing_required_files=missing_required,
+        status_reason=_build_status_reason(
+            layout.settings_file,
+            missing_required,
+            supports_global_search,
+            supports_local_search,
+        ),
     )
 
 
@@ -113,17 +230,25 @@ def list_available_model_ids() -> List[str]:
 
     available: List[str] = []
     for model_id, dir_name in MODEL_DIR_MAP.items():
-        model_dir = root / dir_name
-        if model_dir.exists():
+        if (root / dir_name).exists():
             available.append(model_id)
     return available
+
+
+def list_repository_statuses() -> List[ModelRepository]:
+    repos: List[ModelRepository] = []
+    for model_id in list_available_model_ids():
+        repo = _build_repository(model_id)
+        if repo is not None:
+            repos.append(repo)
+    repos.sort(key=lambda item: item.model_id)
+    return repos
 
 
 def get_repository(model_id: Optional[str]) -> Optional[ModelRepository]:
     normalized = normalize_model_id(model_id)
     if not normalized:
         normalized = DEFAULT_MODEL_ID
-
     return _build_repository(normalized)
 
 
@@ -160,9 +285,6 @@ def _default_knowledge_graph_specs() -> Dict[str, Dict[str, Any]]:
                 "叶面积指数",
                 "冠层",
             ],
-            "model_dir_name": "PROSAIL",
-            "kg_output_subpath": "kg/output",
-            "env_file_subpath": "kg/.env",
             "enabled": True,
             "priority": 10,
         },
@@ -192,9 +314,6 @@ def _default_knowledge_graph_specs() -> Dict[str, Dict[str, Any]]:
                 "生产力",
                 "碳通量",
             ],
-            "model_dir_name": "LUE",
-            "kg_output_subpath": "kg/output",
-            "env_file_subpath": "kg/.env",
             "enabled": True,
             "priority": 20,
         },
@@ -224,34 +343,36 @@ def _load_registry_specs() -> Dict[str, Dict[str, Any]]:
         if not kg_id:
             continue
         base = defaults.get(kg_id, {})
-        merged = {**base, **item}
-        specs[kg_id] = merged
-
+        specs[kg_id] = {**base, **item}
     return specs or defaults
 
 
 def _build_knowledge_graphs() -> Dict[str, KnowledgeGraph]:
-    prosail_repo = get_repository("prosail")
-    lue_repo = get_repository("lue")
-    root = get_repository_root()
-    repo_map = {
-        "prosail": prosail_repo,
-        "lue": lue_repo,
-    }
     specs = _load_registry_specs()
-
     graphs: Dict[str, KnowledgeGraph] = {}
+
     for kg_id, spec in specs.items():
         model_id = normalize_model_id(kg_id) or kg_id
-        repo = repo_map.get(model_id)
-        model_dir_name = str(spec.get("model_dir_name", MODEL_DIR_MAP.get(model_id, model_id.upper())))
-        model_dir = root / model_dir_name
+        repo = get_repository(model_id)
 
-        kg_output_subpath = str(spec.get("kg_output_subpath", "kg/output"))
-        env_file_subpath = str(spec.get("env_file_subpath", "kg/.env"))
-
-        output_dir = repo.kg_output_dir if repo else (model_dir / Path(kg_output_subpath))
-        env_file = repo.env_file if repo else (model_dir / Path(env_file_subpath))
+        if repo is None:
+            dir_name = MODEL_DIR_MAP.get(model_id, model_id.upper())
+            model_dir = get_repository_root() / dir_name
+            output_dir = model_dir / "output"
+            settings_file = model_dir / "settings.yaml"
+            env_file = model_dir / ".env"
+            available = False
+            supports_global_search = False
+            supports_local_search = False
+            status_reason = "repository directory not found"
+        else:
+            output_dir = repo.kg_output_dir
+            settings_file = repo.settings_file
+            env_file = repo.env_file
+            available = repo.available
+            supports_global_search = repo.supports_global_search
+            supports_local_search = repo.supports_local_search
+            status_reason = repo.status_reason
 
         keywords = [str(k).strip() for k in spec.get("keywords", []) if str(k).strip()]
 
@@ -262,15 +383,20 @@ def _build_knowledge_graphs() -> Dict[str, KnowledgeGraph]:
             capability=str(spec.get("capability", "")),
             keywords=keywords,
             output_dir=output_dir,
+            settings_file=settings_file,
             env_file=env_file,
             enabled=bool(spec.get("enabled", True)),
             priority=int(spec.get("priority", 0)),
+            available=available,
+            supports_global_search=supports_global_search,
+            supports_local_search=supports_local_search,
+            status_reason=status_reason,
         )
+
     return graphs
 
 
 KNOWLEDGE_GRAPHS: Dict[str, KnowledgeGraph] = _build_knowledge_graphs()
-KnowledgeGraphType = Literal["prosail", "lue", "none"]
 
 
 def get_knowledge_graph(kg_id: str) -> Optional[KnowledgeGraph]:
@@ -279,22 +405,20 @@ def get_knowledge_graph(kg_id: str) -> Optional[KnowledgeGraph]:
     hit = KNOWLEDGE_GRAPHS.get(normalized)
     if hit:
         return hit
-    # 运行期允许 registry 或目录热更新，未命中时尝试刷新一次。
     KNOWLEDGE_GRAPHS = _build_knowledge_graphs()
     return KNOWLEDGE_GRAPHS.get(normalized)
 
 
 def get_available_graphs() -> List[KnowledgeGraph]:
     global KNOWLEDGE_GRAPHS
-    # 每次查询可用图谱时刷新，避免进程长驻导致注册信息/目录变更后仍使用旧缓存。
     KNOWLEDGE_GRAPHS = _build_knowledge_graphs()
-    return [kg for kg in KNOWLEDGE_GRAPHS.values() if kg.enabled and kg.output_dir.exists()]
+    return [kg for kg in KNOWLEDGE_GRAPHS.values() if kg.enabled and kg.available]
 
 
 def get_default_graph() -> Optional[KnowledgeGraph]:
     for preferred in ("prosail", "lue"):
-        kg = KNOWLEDGE_GRAPHS.get(preferred)
-        if kg and kg.enabled and kg.output_dir.exists():
+        kg = get_knowledge_graph(preferred)
+        if kg and kg.enabled and kg.available:
             return kg
     available = get_available_graphs()
     return available[0] if available else None
@@ -309,8 +433,9 @@ def match_knowledge_graph(query: str) -> Optional[str]:
     compact_query = re_sub_spaces(query_lower)
     best_match = None
     best_score = 0
+
     for kg_id, kg in KNOWLEDGE_GRAPHS.items():
-        if not kg.enabled or not kg.output_dir.exists():
+        if not kg.enabled:
             continue
         score = 0
         for kw in kg.keywords:
@@ -318,12 +443,13 @@ def match_knowledge_graph(query: str) -> Optional[str]:
             if kw_lower in query_lower:
                 score += 1
                 continue
-            # 对 "epsilon max" vs "epsilonmax" 这类写法做轻量归一化匹配
-            if re_sub_spaces(kw_lower) and re_sub_spaces(kw_lower) in compact_query:
+            compact_kw = re_sub_spaces(kw_lower)
+            if compact_kw and compact_kw in compact_query:
                 score += 1
         if score > best_score:
             best_score = score
             best_match = kg_id
+
     return best_match if best_score > 0 else None
 
 

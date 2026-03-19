@@ -11,9 +11,10 @@ import asyncio
 import pandas as pd
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
+import yaml
 
-from .repository_registry import get_knowledge_graph, get_repository_root, normalize_model_id
+from .repository_registry import get_repository, normalize_model_id
 
 # 添加 cleanKG 路径以导入元数据管理器
 _cleankg_path = Path(__file__).parent.parent.parent.parent / "cleanKG"
@@ -28,6 +29,20 @@ _root_env_file = _project_root / ".env"
 if _root_env_file.exists():
     load_dotenv(_root_env_file, override=False)
     print(f"[GraphRAG] 已加载项目环境变量: {_root_env_file}")
+
+
+def _read_env_file(file_path: Path) -> Dict[str, str]:
+    if not file_path.exists():
+        return {}
+    try:
+        raw = dotenv_values(file_path)
+    except Exception:
+        return {}
+    env: Dict[str, str] = {}
+    for key, value in raw.items():
+        if key and value is not None:
+            env[str(key)] = str(value)
+    return env
 
 
 def _dedupe_relationships(relationships: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -46,38 +61,79 @@ def _dedupe_relationships(relationships: List[Dict[str, Any]]) -> List[Dict[str,
         deduped.append(rel)
     return deduped
 
+
+def _normalize_completion_model_id(model_id: Any) -> str:
+    value = str(model_id or "").strip()
+    if value == "default_chat_model":
+        return "default_completion_model"
+    return value
+
+
+def _normalize_embedding_model_id(model_id: Any) -> str:
+    value = str(model_id or "").strip()
+    if value == "default_embedding_model":
+        return "default_embedding_model"
+    return value
+
+
+def _first_document_id(value: Any) -> Optional[str]:
+    if isinstance(value, list) and value:
+        return str(value[0])
+    if hasattr(value, "tolist"):
+        try:
+            items = value.tolist()
+            if isinstance(items, list) and items:
+                return str(items[0])
+        except Exception:
+            pass
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
+def _clean_optional_string(value: Any) -> Optional[str]:
+    text = str(value or "").strip()
+    return text or None
+
+
+def _clean_positive_int(value: Any) -> Optional[int]:
+    try:
+        parsed = int(value)
+    except Exception:
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _clean_positive_float(value: Any) -> Optional[float]:
+    try:
+        parsed = float(value)
+    except Exception:
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _clean_bool(value: Any) -> Optional[bool]:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes", "y"}:
+            return True
+        if lowered in {"false", "0", "no", "n"}:
+            return False
+    return None
+
 def get_kg_output_dir(kg_id: str = "prosail") -> Path:
-    """
-    获取指定知识图谱的输出目录
-    
-    Args:
-        kg_id: 知识图谱ID ("prosail" | "lue")
-    
-    Returns:
-        知识图谱输出目录路径
-    """
+    """获取指定知识图谱的 GraphRAG 输出目录。"""
     normalized = normalize_model_id(kg_id)
-    kg = get_knowledge_graph(normalized)
-    if kg and kg.output_dir.exists():
-        return kg.output_dir
-
-    # 常见部署下的兜底自动发现：resources/repositories/<MODEL>/kg/output
-    candidates = []
-    model_dir_name = normalized.upper()
-    if normalized == "prosail":
-        model_dir_name = "PROSAIL"
-    elif normalized == "lue":
-        model_dir_name = "LUE"
-    candidates.append(get_repository_root() / model_dir_name / "kg" / "output")
-    candidates.append(get_repository_root() / model_dir_name / "output")
-
-    for p in candidates:
-        if p.exists():
-            return p
-
-    raise FileNotFoundError(
-        f"知识图谱输出目录不存在 (kg={normalized}): tried {[str(p) for p in candidates]}"
-    )
+    repo = get_repository(normalized)
+    if repo is None:
+        raise FileNotFoundError(f"知识图谱仓库不存在 (kg={normalized})")
+    if not repo.available:
+        raise FileNotFoundError(
+            f"知识图谱不可用 (kg={normalized}, layout={repo.layout_name}): {repo.status_reason}"
+        )
+    return repo.kg_output_dir
 
 
 class GraphRAGQueryEngine:
@@ -192,18 +248,21 @@ class GraphRAGQueryEngine:
             metadata_dir: 元数据目录路径，用于论文来源溯源
         """
         # 确定知识图谱ID和输出目录
-        self.kg_id = kg_id or "prosail"  # 默认使用 PROSAIL
+        self.kg_id = normalize_model_id(kg_id or "prosail")
         self._cache_key = self.kg_id
-        
+        self.repository = get_repository(self.kg_id)
+
         if output_dir:
             self.output_dir = output_dir
         else:
             self.output_dir = get_kg_output_dir(self.kg_id)
         
         self._config = None
+        self._config_error: Optional[str] = None
         self._dataframes = {}
         self._initialized = False
         self.metadata_manager = None
+        self._runtime_env = self._build_runtime_env()
         
         # 初始化元数据管理器（用于论文溯源）
         if metadata_dir:
@@ -217,6 +276,13 @@ class GraphRAGQueryEngine:
         # 检查输出目录是否存在
         if not self.output_dir.exists():
             raise FileNotFoundError(f"GraphRAG 输出目录不存在: {self.output_dir} (kg={self.kg_id})")
+        if self.repository is None:
+            raise FileNotFoundError(f"知识图谱仓库不存在: {self.kg_id}")
+        if not self.repository.available:
+            raise FileNotFoundError(
+                f"知识图谱不可用 (kg={self.kg_id}, layout={self.repository.layout_name}): "
+                f"{self.repository.status_reason}"
+            )
         
         # 使用类级别缓存（按 kg_id 分开）
         if GraphRAGQueryEngine._cache_loaded.get(self._cache_key, False):
@@ -265,6 +331,10 @@ class GraphRAGQueryEngine:
                 raise FileNotFoundError(f"缺少必要的数据文件: {filepath}")
             key = filename.replace(".parquet", "")
             self._dataframes[key] = pd.read_parquet(filepath)
+            self._dataframes[key] = self._normalize_dataframe_for_query(
+                key,
+                self._dataframes[key],
+            )
             print(f"[GraphRAG] 已加载 {filename}: {len(self._dataframes[key])} 条记录")
         
         for filename in optional_files:
@@ -272,6 +342,10 @@ class GraphRAGQueryEngine:
             if filepath.exists():
                 key = filename.replace(".parquet", "")
                 self._dataframes[key] = pd.read_parquet(filepath)
+                self._dataframes[key] = self._normalize_dataframe_for_query(
+                    key,
+                    self._dataframes[key],
+                )
                 print(f"[GraphRAG] 已加载 {filename}: {len(self._dataframes[key])} 条记录")
             else:
                 key = filename.replace(".parquet", "")
@@ -309,6 +383,25 @@ class GraphRAGQueryEngine:
         print(f"[GraphRAG] 数据已缓存 (kg={self.kg_id})，后续查询将直接使用缓存")
                 
         return self._dataframes
+
+    def _normalize_dataframe_for_query(
+        self,
+        df_name: str,
+        df: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """
+        对标准 GraphRAG parquet 产物做轻量兼容，尽量满足 graphrag query loader 的字段预期。
+        """
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            return df
+
+        normalized = df.copy()
+
+        if df_name == "text_units":
+            if "document_id" not in normalized.columns and "document_ids" in normalized.columns:
+                normalized["document_id"] = normalized["document_ids"].apply(_first_document_id)
+
+        return normalized
     
     def _get_graphrag_config(self):
         """
@@ -329,6 +422,7 @@ class GraphRAGQueryEngine:
             
         try:
             from graphrag.config.load_config import load_config
+            from graphrag_llm.config import ModelConfig
             
             # 从 kg 目录加载 settings.yaml 配置
             kg_root = self.output_dir.parent  # kg/{kg_name}/ 目录
@@ -337,20 +431,219 @@ class GraphRAGQueryEngine:
             if settings_path.exists():
                 print(f"[GraphRAG] 从配置文件加载 (kg={self.kg_id}): {settings_path}")
                 self._config = load_config(root_dir=kg_root)
+                self._apply_legacy_model_config_compat(
+                    config=self._config,
+                    settings_path=settings_path,
+                    model_config_cls=ModelConfig,
+                )
+                self._config_error = None
                 # 保存到类级别缓存（按 kg_id）
                 GraphRAGQueryEngine._shared_configs[self._cache_key] = self._config
                 print(f"[GraphRAG] 配置加载成功并已缓存 (kg={self.kg_id})")
             else:
                 print(f"[GraphRAG] 配置文件不存在: {settings_path}")
+                self._config_error = f"配置文件不存在: {settings_path}"
                 self._config = None
                 
         except Exception as e:
             print(f"[GraphRAG] 配置加载失败 (kg={self.kg_id}): {e}")
             import traceback
             traceback.print_exc()
+            self._config_error = str(e)
             self._config = None
             
         return self._config
+
+    def _build_runtime_env(self) -> Dict[str, str]:
+        env: Dict[str, str] = {}
+        env.update(_read_env_file(_root_env_file))
+        if self.repository and self.repository.env_file.exists():
+            env.update(_read_env_file(self.repository.env_file))
+        for key in (
+            "GRAPHRAG_API_KEY",
+            "OPENAI_API_KEY",
+            "OPENAI_API_BASE",
+            "AZURE_OPENAI_API_KEY",
+            "AZURE_OPENAI_ENDPOINT",
+        ):
+            value = os.getenv(key)
+            if value:
+                env[key] = value
+        return env
+
+    def _runtime_env_get(self, *keys: str) -> Optional[str]:
+        for key in keys:
+            value = self._runtime_env.get(key)
+            if value:
+                return value
+        return None
+
+    def _apply_legacy_model_config_compat(
+        self,
+        config: Any,
+        settings_path: Path,
+        model_config_cls: Any,
+    ) -> None:
+        """
+        兼容旧版 settings.yaml 中的 models/default_chat_model 写法。
+
+        graphrag 3.x query API 需要 completion_models / embedding_models。
+        现有仓库里的 settings.yaml 多为老格式，这里做运行时转换。
+        """
+        try:
+            raw = yaml.safe_load(settings_path.read_text(encoding="utf-8")) or {}
+        except Exception as exc:
+            print(f"[GraphRAG] 读取 settings.yaml 失败，跳过兼容映射 (kg={self.kg_id}): {exc}")
+            return
+
+        legacy_models = raw.get("models") if isinstance(raw, dict) else None
+        if not isinstance(legacy_models, dict):
+            return
+
+        default_api_key = self._runtime_env_get("GRAPHRAG_API_KEY", "OPENAI_API_KEY") or ""
+        default_api_base = self._runtime_env_get(
+            "OPENAI_API_BASE",
+            "AZURE_OPENAI_ENDPOINT",
+        ) or ""
+
+        def _build_call_args(data: Dict[str, Any]) -> Dict[str, Any]:
+            call_args: Dict[str, Any] = {}
+
+            temperature = data.get("temperature")
+            if temperature is not None:
+                try:
+                    call_args["temperature"] = float(temperature)
+                except Exception:
+                    pass
+
+            max_tokens = _clean_positive_int(data.get("max_tokens"))
+            if max_tokens is not None:
+                call_args["max_tokens"] = max_tokens
+
+            timeout = _clean_positive_float(data.get("request_timeout") or data.get("timeout"))
+            if timeout is not None:
+                call_args["timeout"] = timeout
+
+            supports_json = _clean_bool(data.get("model_supports_json"))
+            if supports_json:
+                call_args["response_format"] = {"type": "json_object"}
+
+            return call_args
+
+        def _build_rate_limit(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+            requests_per_period = _clean_positive_int(data.get("requests_per_minute"))
+            tokens_per_period = _clean_positive_int(data.get("tokens_per_minute"))
+            if requests_per_period is None and tokens_per_period is None:
+                return None
+            payload: Dict[str, Any] = {
+                "type": "sliding_window",
+                "period_in_seconds": 60,
+            }
+            if requests_per_period is not None:
+                payload["requests_per_period"] = requests_per_period
+            if tokens_per_period is not None:
+                payload["tokens_per_period"] = tokens_per_period
+            return payload
+
+        def _to_model_config(data: Dict[str, Any]) -> Any:
+            model_provider = str(data.get("model_provider", "openai") or "openai")
+            auth_method = str(data.get("auth_method") or data.get("auth_type") or "api_key")
+            api_key = _clean_optional_string(data.get("api_key", default_api_key) or default_api_key)
+            api_base = _clean_optional_string(data.get("api_base", default_api_base) or default_api_base)
+
+            if auth_method == "api_key" and not api_key:
+                raise RuntimeError(
+                    f"缺少 API key (kg={self.kg_id}, provider={model_provider}). "
+                    "请在项目根 .env 或对应知识图谱的 kg/.env 中配置 GRAPHRAG_API_KEY / OPENAI_API_KEY。"
+                )
+            if model_provider == "azure" and not api_base:
+                raise RuntimeError(
+                    f"缺少 Azure API Base (kg={self.kg_id}). "
+                    "请在项目根 .env 或对应知识图谱的 kg/.env 中配置 OPENAI_API_BASE / AZURE_OPENAI_ENDPOINT。"
+                )
+
+            payload = {
+                "type": "litellm",
+                "model_provider": model_provider,
+                "model": str(data.get("model", "") or ""),
+                "call_args": _build_call_args(data),
+                "api_base": api_base,
+                "api_version": data.get("api_version"),
+                "api_key": api_key,
+                "auth_method": auth_method,
+                "retry": {
+                    "type": str(
+                        data.get("retry_strategy", "exponential_backoff")
+                        or "exponential_backoff"
+                    ),
+                },
+            }
+            max_retries = data.get("max_retries")
+            if max_retries is not None:
+                try:
+                    payload["retry"]["max_retries"] = int(max_retries)
+                except Exception:
+                    pass
+            rate_limit = _build_rate_limit(data)
+            if rate_limit is not None:
+                payload["rate_limit"] = rate_limit
+            azure_deployment_name = _clean_optional_string(
+                data.get("azure_deployment_name") or data.get("deployment_name")
+            )
+            if azure_deployment_name is not None:
+                payload["azure_deployment_name"] = azure_deployment_name
+            return model_config_cls(**payload)
+
+        default_chat = legacy_models.get("default_chat_model")
+        if isinstance(default_chat, dict) and not getattr(config, "completion_models", {}):
+            config.completion_models = {
+                "default_completion_model": _to_model_config(default_chat)
+            }
+
+        default_embedding = legacy_models.get("default_embedding_model")
+        if isinstance(default_embedding, dict) and not getattr(config, "embedding_models", {}):
+            config.embedding_models = {
+                "default_embedding_model": _to_model_config(default_embedding)
+            }
+
+        chat_concurrency = None
+        if isinstance(default_chat, dict):
+            chat_concurrency = _clean_positive_int(default_chat.get("concurrent_requests"))
+        if chat_concurrency is not None:
+            config.concurrent_requests = chat_concurrency
+
+        local_cfg = raw.get("local_search") if isinstance(raw, dict) else None
+        if isinstance(local_cfg, dict):
+            completion_model_id = local_cfg.get("completion_model_id") or local_cfg.get("chat_model_id")
+            embedding_model_id = local_cfg.get("embedding_model_id")
+            if completion_model_id:
+                config.local_search.completion_model_id = _normalize_completion_model_id(completion_model_id)
+            if embedding_model_id:
+                config.local_search.embedding_model_id = _normalize_embedding_model_id(
+                    embedding_model_id
+                )
+
+        global_cfg = raw.get("global_search") if isinstance(raw, dict) else None
+        if isinstance(global_cfg, dict):
+            completion_model_id = global_cfg.get("completion_model_id") or global_cfg.get("chat_model_id")
+            if completion_model_id:
+                config.global_search.completion_model_id = _normalize_completion_model_id(completion_model_id)
+
+        vector_store_cfg = raw.get("vector_store") if isinstance(raw, dict) else None
+        if isinstance(vector_store_cfg, dict):
+            default_vector_store = vector_store_cfg.get("default_vector_store")
+            if isinstance(default_vector_store, dict):
+                db_uri = default_vector_store.get("db_uri")
+                if db_uri:
+                    resolved_db_uri = (settings_path.parent / str(db_uri)).resolve()
+                    config.vector_store.db_uri = str(resolved_db_uri)
+
+        if getattr(config.local_search, "completion_model_id", None) == "default_chat_model":
+            config.local_search.completion_model_id = "default_completion_model"
+        if getattr(config.global_search, "completion_model_id", None) == "default_chat_model":
+            config.global_search.completion_model_id = "default_completion_model"
+        if getattr(config.local_search, "embedding_model_id", None) == "default_embedding_model":
+            config.local_search.embedding_model_id = "default_embedding_model"
     
     async def local_search(
         self, 
@@ -373,21 +666,24 @@ class GraphRAGQueryEngine:
         """
         try:
             import graphrag.api as api
-            
+
             # 加载数据
             dfs = self._load_parquet_files()
             config = self._get_graphrag_config()
-            
+
             if config is None:
-                print("[GraphRAG] 配置为空，使用回退搜索")
-                return await self._fallback_local_search(query)
-            
+                raise RuntimeError(
+                    f"GraphRAG 配置不可用 (kg={self.kg_id}): "
+                    f"{self._config_error or 'settings.yaml 未找到或加载失败'}"
+                )
+
             # 检查向量存储是否存在
             lancedb_path = self.output_dir / "lancedb"
             if not lancedb_path.exists():
-                print(f"[GraphRAG] 向量存储不存在: {lancedb_path}，使用回退搜索")
-                return await self._fallback_local_search(query)
-            
+                raise RuntimeError(
+                    f"GraphRAG local search 不可用 (kg={self.kg_id}): 缺少向量存储 {lancedb_path}"
+                )
+
             response, context_data = await api.local_search(
                 config=config,
                 entities=dfs["entities"],
@@ -400,19 +696,18 @@ class GraphRAGQueryEngine:
                 response_type=response_type,
                 query=query,
             )
-            
+
             return str(response) if not isinstance(response, str) else response, context_data
-            
+
         except ImportError:
-            print("[GraphRAG] graphrag 库未安装，使用回退方案")
-            return await self._fallback_local_search(query)
+            raise RuntimeError(
+                "graphrag 库未安装，当前项目只支持基于标准 GraphRAG 产物执行正式 query"
+            )
         except Exception as e:
             print(f"[GraphRAG] 本地搜索失败: {e}")
             import traceback
             traceback.print_exc()
-            # 使用回退搜索（基于关键词匹配）
-            print("[GraphRAG] 切换到回退搜索模式")
-            return await self._fallback_local_search(query)
+            raise
     
     async def global_search(
         self,
@@ -437,15 +732,17 @@ class GraphRAGQueryEngine:
         """
         try:
             import graphrag.api as api
-            
+
             # 加载数据
             dfs = self._load_parquet_files()
             config = self._get_graphrag_config()
-            
+
             if config is None:
-                print("[GraphRAG] 配置为空，使用回退搜索")
-                return await self._fallback_global_search(query)
-            
+                raise RuntimeError(
+                    f"GraphRAG 配置不可用 (kg={self.kg_id}): "
+                    f"{self._config_error or 'settings.yaml 未找到或加载失败'}"
+                )
+
             response, context_data = await api.global_search(
                 config=config,
                 entities=dfs["entities"],
@@ -456,18 +753,18 @@ class GraphRAGQueryEngine:
                 response_type=response_type,
                 query=query,
             )
-            
+
             return str(response) if not isinstance(response, str) else response, context_data
-            
+
         except ImportError:
-            print("[GraphRAG] graphrag 库未安装，使用回退方案")
-            return await self._fallback_global_search(query)
+            raise RuntimeError(
+                "graphrag 库未安装，当前项目只支持基于标准 GraphRAG 产物执行正式 query"
+            )
         except Exception as e:
             print(f"[GraphRAG] 全局搜索失败: {e}")
             import traceback
             traceback.print_exc()
-            print("[GraphRAG] 切换到回退搜索模式")
-            return await self._fallback_global_search(query)
+            raise
     
     async def _fallback_local_search(self, query: str) -> Tuple[str, Dict[str, Any]]:
         """
@@ -760,9 +1057,11 @@ async def local_search(query: str, kg_id: str = "prosail", **kwargs) -> Tuple[st
         engine = GraphRAGQueryEngine(kg_id=kg_id)
         return await engine.local_search(query, **kwargs)
     except FileNotFoundError as e:
-        print(f"[GraphRAG] 知识图谱不存在 (kg={kg_id}): {e}")
-        # 返回空结果
-        return f"知识图谱 '{kg_id}' 不存在或未初始化", {"error": str(e), "kg_id": kg_id}
+        print(f"[GraphRAG] 知识图谱不可用 (kg={kg_id}): {e}")
+        return f"知识图谱 '{kg_id}' 不可用", {"error": str(e), "kg_id": kg_id}
+    except RuntimeError as e:
+        print(f"[GraphRAG] Local Search 无法执行 (kg={kg_id}): {e}")
+        return f"Local Search 无法执行: {e}", {"error": str(e), "kg_id": kg_id}
     except Exception as e:
         print(f"[GraphRAG] Local Search 失败 (kg={kg_id}): {e}")
         import traceback
@@ -786,9 +1085,11 @@ async def global_search(query: str, kg_id: str = "prosail", **kwargs) -> Tuple[s
         engine = GraphRAGQueryEngine(kg_id=kg_id)
         return await engine.global_search(query, **kwargs)
     except FileNotFoundError as e:
-        print(f"[GraphRAG] 知识图谱不存在 (kg={kg_id}): {e}")
-        # 返回空结果
-        return f"知识图谱 '{kg_id}' 不存在或未初始化", {"error": str(e), "kg_id": kg_id}
+        print(f"[GraphRAG] 知识图谱不可用 (kg={kg_id}): {e}")
+        return f"知识图谱 '{kg_id}' 不可用", {"error": str(e), "kg_id": kg_id}
+    except RuntimeError as e:
+        print(f"[GraphRAG] Global Search 无法执行 (kg={kg_id}): {e}")
+        return f"Global Search 无法执行: {e}", {"error": str(e), "kg_id": kg_id}
     except Exception as e:
         print(f"[GraphRAG] Global Search 失败 (kg={kg_id}): {e}")
         import traceback

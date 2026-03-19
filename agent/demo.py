@@ -56,7 +56,7 @@ from test_agent.config import get_llm_model, set_llm_model, get_supported_models
 
 # 导入 GraphRAG 存储服务
 from test_agent.graphrag_storage import get_graphrag_storage, GraphRAGStorage
-from test_agent.repository_registry import get_repository
+from test_agent.repository_registry import get_repository, list_repository_statuses
 
 # 导入案例服务
 from test_agent.prosail_cases import get_case_full_details
@@ -301,6 +301,14 @@ async def lifespan(app: FastAPI):
     
     # 初始化会话管理器
     await session_manager.initialize(checkpointer)
+
+    for repo in list_repository_statuses():
+        print(
+            "[INFO] KG status -> "
+            f"id={repo.model_id}, layout={repo.layout_name}, "
+            f"available={repo.available}, global={repo.supports_global_search}, "
+            f"local={repo.supports_local_search}, reason={repo.status_reason}"
+        )
     
     # 获取全局图实例（用于注册端点）
     global_graph = session_manager.get_global_graph()
@@ -420,12 +428,24 @@ app.add_middleware(
 @app.get("/health")
 def health():
     """Health check."""
+    kg_status = [
+        {
+            "id": repo.model_id,
+            "layout": repo.layout_name,
+            "available": repo.available,
+            "supports_global_search": repo.supports_global_search,
+            "supports_local_search": repo.supports_local_search,
+            "reason": repo.status_reason,
+        }
+        for repo in list_repository_statuses()
+    ]
     return {
         "status": "ok", 
         "persistence": "sqlite", 
         "db_path": DB_PATH,
         "agents": ["test"],
         "concurrent_mode": True,
+        "knowledge_graphs": kg_status,
     }
 
 

@@ -1,28 +1,29 @@
-"""
-LangGraph Agents for CopilotKit
+"""LangGraph Agents for CopilotKit."""
 
-提供多种推理代理实现:
-- test_agent: PROSAIL 参数推理引擎（基于 GraphRAG + CoT）
-"""
+from __future__ import annotations
 
-# 导入 test_agent 模块
-from .test_agent import (
-    build_graph,
-    TestAgentState,
-    create_initial_state,
-    PROSAIL_PARAMS,
-)
+from importlib import import_module
+from typing import Any
 
-# 为 demo.py 提供兼容性
-try:
-    from .test_agent.agent import build_graph as test_agent_graph
-except ImportError:
-    test_agent_graph = None
 
 __all__ = [
     "build_graph",
-    "TestAgentState", 
+    "TestAgentState",
     "create_initial_state",
     "PROSAIL_PARAMS",
     "test_agent_graph",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name in {"build_graph", "TestAgentState", "create_initial_state", "PROSAIL_PARAMS"}:
+        module = import_module(".test_agent", __name__)
+        return getattr(module, name)
+    if name == "test_agent_graph":
+        try:
+            module = import_module(".test_agent.agent", __name__)
+        except ImportError:
+            return None
+        return getattr(module, "build_graph", None)
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)
