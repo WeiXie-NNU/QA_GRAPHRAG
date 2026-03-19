@@ -408,6 +408,72 @@ def _collect_latest_case_geo_payload(messages: List[Any]) -> Optional[Dict[str, 
     return None
 
 
+def _build_graphrag_result_summary(
+    result: Optional[Dict[str, Any]],
+    search_type: str,
+    result_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    if not isinstance(result, dict):
+        return None
+    return {
+        "search_type": search_type,
+        "query": str(result.get("query", "") or ""),
+        "response": str(result.get("response", "") or ""),
+        "relevance_score": float(result.get("relevance_score", 0.0) or 0.0),
+        "execution_time": float(result.get("execution_time", 0.0) or 0.0),
+        "result_id": result_id,
+    }
+
+
+async def _persist_latest_graphrag_results(
+    state: TestAgentState,
+    config: RunnableConfig,
+) -> Dict[str, Optional[Dict[str, Any]]]:
+    """提取当前轮 GraphRAG 工具结果，持久化后返回摘要。"""
+    tool_results = _collect_latest_tool_results(state.get("messages", []))
+    if not tool_results:
+        return {"local": None, "global": None}
+
+    storage = get_graphrag_storage()
+    thread_id = str(config.get("configurable", {}).get("thread_id", "unknown"))
+    summaries: Dict[str, Optional[Dict[str, Any]]] = {"local": None, "global": None}
+
+    for key in ("local", "global"):
+        result = tool_results.get(key)
+        if not isinstance(result, dict):
+            continue
+
+        result_id: Optional[str] = None
+        try:
+            result_id = await storage.save_result(
+                thread_id=thread_id,
+                search_type=key,
+                query=str(result.get("query", "") or ""),
+                response=str(result.get("response", "") or ""),
+                context_data=result.get("context_data") if isinstance(result.get("context_data"), dict) else {},
+                source_documents=result.get("source_documents") if isinstance(result.get("source_documents"), list) else [],
+                relevance_score=float(result.get("relevance_score", 0.0) or 0.0),
+                execution_time=float(result.get("execution_time", 0.0) or 0.0),
+                token_usage=int(result.get("token_usage", 0) or 0),
+            )
+        except Exception as exc:
+            print(f"[AGENT:{_get_session_id(config)}] save {key} graphrag result failed: {exc}")
+
+        summaries[key] = _build_graphrag_result_summary(result, key, result_id)
+
+    return summaries
+
+
+def _build_agent_data_marker(
+    local_result_id: Optional[str] = None,
+    global_result_id: Optional[str] = None,
+    geo_data_id: Optional[str] = None,
+) -> str:
+    return (
+        f"<!-- AGENT_DATA:{local_result_id or ''}:{global_result_id or ''}:{geo_data_id or ''} -->"
+    )
+
+
 async def _persist_case_geo_data_if_any(state: TestAgentState, config: RunnableConfig) -> Optional[str]:
     """若本轮调用 get_cases 返回空间分布，则落库并返回 geo_data_id。"""
     payload = _collect_latest_case_geo_payload(state.get("messages", []))
@@ -895,17 +961,26 @@ async def general_qa_finalize_node(state: TestAgentState, config: RunnableConfig
     steps = list(state.get("steps") or [])
     steps = _set_step(steps, 4, "completed", ["通用问答完成"])
     await _emit_ui(config, {"steps": steps})
+    rag_summaries = await _persist_latest_graphrag_results(state, config)
+    local_summary = rag_summaries.get("local")
+    global_summary = rag_summaries.get("global")
     geo_data_id = state.get("case_geo_data_id") or await _persist_case_geo_data_if_any(state, config)
     # 调用案例空间分布工具后，回答强制简化为一行，避免冗长文本列表。
     if geo_data_id:
         final_text = "已为你加载案例空间分布，请直接查看下方地图。"
-    agent_data_marker = f"<!-- AGENT_DATA:::{geo_data_id or ''} -->"
+    agent_data_marker = _build_agent_data_marker(
+        (local_summary or {}).get("result_id") if isinstance(local_summary, dict) else None,
+        (global_summary or {}).get("result_id") if isinstance(global_summary, dict) else None,
+        geo_data_id,
+    )
     final_with_state = f"{final_text}\n\n{agent_data_marker}\n{_build_agent_state_marker({'steps': steps})}"
     await _persist_visible_turn(state, config, final_with_state)
     payload: Dict[str, Any] = {
         "steps": steps,
         "final_response": final_text,
         "final_answer": final_text,
+        "local_rag_result": local_summary,
+        "global_rag_result": global_summary,
         # 追加一条新的最终 AI 消息，避免复用旧 message id
         # 与 CopilotKit regenerate/time-travel 的 checkpoint 对齐失败。
         "messages": [AIMessage(content=final_with_state)],
@@ -1257,39 +1332,7 @@ async def synthesize_node(state: TestAgentState, config: RunnableConfig) -> Dict
     tool_results = _collect_latest_tool_results(state.get("messages", []))
     local_result = tool_results.get("local")
     global_result = tool_results.get("global")
-
-    thread_id = str(config.get("configurable", {}).get("thread_id", "unknown"))
-    storage = get_graphrag_storage()
-    local_result_id = None
-    global_result_id = None
-
-    try:
-        if local_result:
-            local_result_id = await storage.save_result(
-                thread_id=thread_id,
-                search_type="local",
-                query=str(local_result.get("query", "")),
-                response=str(local_result.get("response", "")),
-                context_data=local_result.get("context_data") if isinstance(local_result.get("context_data"), dict) else {},
-                source_documents=local_result.get("source_documents") if isinstance(local_result.get("source_documents"), list) else [],
-                relevance_score=float(local_result.get("relevance_score", 0.0) or 0.0),
-                execution_time=float(local_result.get("execution_time", 0.0) or 0.0),
-                token_usage=int(local_result.get("token_usage", 0) or 0),
-            )
-        if global_result:
-            global_result_id = await storage.save_result(
-                thread_id=thread_id,
-                search_type="global",
-                query=str(global_result.get("query", "")),
-                response=str(global_result.get("response", "")),
-                context_data=global_result.get("context_data") if isinstance(global_result.get("context_data"), dict) else {},
-                source_documents=global_result.get("source_documents") if isinstance(global_result.get("source_documents"), list) else [],
-                relevance_score=float(global_result.get("relevance_score", 0.0) or 0.0),
-                execution_time=float(global_result.get("execution_time", 0.0) or 0.0),
-                token_usage=int(global_result.get("token_usage", 0) or 0),
-            )
-    except Exception as exc:
-        print(f"[AGENT:{_get_session_id(config)}] save result failed: {exc}")
+    rag_summaries = await _persist_latest_graphrag_results(state, config)
 
     query = _latest_query(state)
     entities = state.get("entities", {})
@@ -1352,23 +1395,8 @@ Global Search: {json.dumps(global_result or {}, ensure_ascii=False)}
     steps = _set_step(steps, 3, "completed", [f"生成参数建议 {len(recommendations)} 项"])
     await _emit_ui(config, {"steps": steps})
 
-    local_summary = {
-        "search_type": "local",
-        "query": (local_result or {}).get("query", ""),
-        "response": (local_result or {}).get("response", ""),
-        "relevance_score": float((local_result or {}).get("relevance_score", 0.0) or 0.0),
-        "execution_time": float((local_result or {}).get("execution_time", 0.0) or 0.0),
-        "result_id": local_result_id,
-    } if local_result else None
-
-    global_summary = {
-        "search_type": "global",
-        "query": (global_result or {}).get("query", ""),
-        "response": (global_result or {}).get("response", ""),
-        "relevance_score": float((global_result or {}).get("relevance_score", 0.0) or 0.0),
-        "execution_time": float((global_result or {}).get("execution_time", 0.0) or 0.0),
-        "result_id": global_result_id,
-    } if global_result else None
+    local_summary = rag_summaries.get("local") if local_result else None
+    global_summary = rag_summaries.get("global") if global_result else None
 
     return {
         "steps": steps,
@@ -1422,7 +1450,7 @@ async def quality_check_node(state: TestAgentState, config: RunnableConfig) -> D
     local_id = (state.get("local_rag_result") or {}).get("result_id", "") if isinstance(state.get("local_rag_result"), dict) else ""
     global_id = (state.get("global_rag_result") or {}).get("result_id", "") if isinstance(state.get("global_rag_result"), dict) else ""
     geo_data_id = await _persist_case_geo_data_if_any(state, config)
-    final_content = final_response + f"\n\n<!-- AGENT_DATA:{local_id}:{global_id}:{geo_data_id or ''} -->"
+    final_content = final_response + f"\n\n{_build_agent_data_marker(local_id, global_id, geo_data_id)}"
 
     steps = list(state.get("steps") or [])
     steps = _set_step(steps, 4, "completed", ["质量检查完成", "已生成最终回答"])

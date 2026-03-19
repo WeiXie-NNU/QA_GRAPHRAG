@@ -155,7 +155,11 @@ export interface GraphRAGResult {
   response: string;                     // LLM 生成的回答
   context_data?: {                      // 上下文数据
     entities?: any[];
+    matched_entities?: any[];
     relationships?: any[];
+    matched_relationships?: any[];
+    reports?: any[];
+    matched_reports?: any[];
     communities?: any[];
     themes?: any[];
     source_documents?: string[];        // 来源文档ID列表

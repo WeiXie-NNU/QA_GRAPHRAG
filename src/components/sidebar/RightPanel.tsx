@@ -337,9 +337,15 @@ const SearchContent: React.FC<SearchContentProps> = ({ data, type }) => {
   }
 
   const contextData = fullResult?.context_data;
-  const entities = type === 'local' ? (contextData?.entities || []) : [];
-  const relationships = type === 'local' ? (contextData?.relationships || []) : [];
-  const reports = type === 'global' ? (contextData?.reports || contextData?.communities || []) : [];
+  const entities = type === 'local'
+    ? (contextData?.entities || contextData?.matched_entities || [])
+    : [];
+  const relationships = type === 'local'
+    ? (contextData?.relationships || contextData?.matched_relationships || [])
+    : [];
+  const reports = type === 'global'
+    ? (contextData?.reports || contextData?.matched_reports || contextData?.communities || [])
+    : [];
 
   return (
     <div className="search-content">

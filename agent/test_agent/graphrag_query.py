@@ -29,6 +29,23 @@ if _root_env_file.exists():
     load_dotenv(_root_env_file, override=False)
     print(f"[GraphRAG] 已加载项目环境变量: {_root_env_file}")
 
+
+def _dedupe_relationships(relationships: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    deduped: List[Dict[str, Any]] = []
+    seen = set()
+    for rel in relationships:
+        key = (
+            str(rel.get("source") or ""),
+            str(rel.get("target") or ""),
+            str(rel.get("type") or ""),
+            str(rel.get("description") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(rel)
+    return deduped
+
 def get_kg_output_dir(kg_id: str = "prosail") -> Path:
     """
     获取指定知识图谱的输出目录
@@ -502,7 +519,15 @@ class GraphRAGQueryEngine:
                     if isinstance(doc_ids, list):
                         source_documents.extend(doc_ids)
         source_documents = list(set(source_documents))  # 去重
-        
+
+        relationships: List[Dict[str, Any]] = []
+        for entity in matched_entities[:10]:
+            entity_name = str(entity.get("name") or "").strip()
+            if not entity_name:
+                continue
+            relationships.extend(self.get_entity_relationships(entity_name))
+        relationships = _dedupe_relationships(relationships)
+
         # 获取论文元数据
         paper_sources = []
         if self.metadata_manager and source_documents:
@@ -518,14 +543,16 @@ class GraphRAGQueryEngine:
                         "year": citation_info.publication_date,
                         "citation": citation_info.format_gb7714()
                     })
-        
+
         context_data = {
+            "entities": matched_entities,
+            "relationships": relationships,
             "matched_entities": matched_entities,
             "source_documents": source_documents,
             "paper_sources": paper_sources,
             "total_entities": len(entities_df),
         }
-        
+
         return response, context_data
     
     async def _fallback_global_search(self, query: str) -> Tuple[str, Dict[str, Any]]:
@@ -552,6 +579,9 @@ class GraphRAGQueryEngine:
                     "title": report.get("title") or "未知标题",
                     "summary": report.get("summary") or "",
                     "full_content": report.get("full_content") or "",
+                    "text_unit_ids": report.get("text_unit_ids", []),
+                    "community": report.get("community"),
+                    "community_id": report.get("community_id", report.get("community")),
                     "rank": report.get("rank", 0) or 0,
                 })
         
@@ -601,8 +631,10 @@ class GraphRAGQueryEngine:
                         "year": citation_info.publication_date,
                         "citation": citation_info.format_gb7714()
                     })
-        
+
         context_data = {
+            "reports": matched_reports,
+            "communities": matched_reports,
             "matched_reports": matched_reports,
             "source_documents": source_documents,
             "paper_sources": paper_sources,  # 新增：论文来源元数据
