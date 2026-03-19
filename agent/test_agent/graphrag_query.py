@@ -149,6 +149,7 @@ class GraphRAGQueryEngine:
     _shared_dataframes: Dict[str, Dict[str, pd.DataFrame]] = {}  # {kg_id: {df_name: df}}
     _shared_configs: Dict[str, Any] = {}  # {kg_id: config}
     _cache_loaded: Dict[str, bool] = {}  # {kg_id: bool}
+    _query_cache: Dict[Tuple[Any, ...], Tuple[Any, Any]] = {}
     _cache_lock = None  # 用于线程安全
     
     @classmethod
@@ -204,11 +205,15 @@ class GraphRAGQueryEngine:
             cls._shared_dataframes.pop(kg_id, None)
             cls._shared_configs.pop(kg_id, None)
             cls._cache_loaded.pop(kg_id, None)
+            keys_to_delete = [key for key in cls._query_cache if key and key[0] == kg_id]
+            for key in keys_to_delete:
+                cls._query_cache.pop(key, None)
             print(f"[GraphRAG] 缓存已清除 (kg={kg_id})")
         else:
             cls._shared_dataframes = {}
             cls._shared_configs = {}
             cls._cache_loaded = {}
+            cls._query_cache = {}
             print("[GraphRAG] 所有缓存已清除")
     
     @classmethod
@@ -454,6 +459,33 @@ class GraphRAGQueryEngine:
             
         return self._config
 
+    def _get_query_timeout_seconds(self, timeout_seconds: Optional[float]) -> float:
+        if timeout_seconds is not None and timeout_seconds > 0:
+            return float(timeout_seconds)
+
+        raw = self._runtime_env.get("GRAPHRAG_QUERY_TIMEOUT_SECONDS")
+        parsed = _clean_positive_float(raw)
+        if parsed is not None:
+            return parsed
+        return 120.0
+
+    def _build_query_cache_key(
+        self,
+        search_type: str,
+        query: str,
+        community_level: int,
+        response_type: str,
+        dynamic_community_selection: bool = False,
+    ) -> Tuple[Any, ...]:
+        return (
+            self.kg_id,
+            search_type,
+            (query or "").strip(),
+            int(community_level),
+            str(response_type or ""),
+            bool(dynamic_community_selection),
+        )
+
     def _build_runtime_env(self) -> Dict[str, str]:
         env: Dict[str, str] = {}
         env.update(_read_env_file(_root_env_file))
@@ -649,7 +681,8 @@ class GraphRAGQueryEngine:
         self, 
         query: str,
         community_level: int = 2,
-        response_type: str = "Multiple Paragraphs"
+        response_type: str = "Multiple Paragraphs",
+        timeout_seconds: Optional[float] = None,
     ) -> Tuple[Any, Any]:
         """
         执行本地搜索（Local Search）
@@ -684,25 +717,51 @@ class GraphRAGQueryEngine:
                     f"GraphRAG local search 不可用 (kg={self.kg_id}): 缺少向量存储 {lancedb_path}"
                 )
 
-            response, context_data = await api.local_search(
-                config=config,
-                entities=dfs["entities"],
-                communities=dfs["communities"],
-                community_reports=dfs["community_reports"],
-                text_units=dfs["text_units"],
-                relationships=dfs["relationships"],
-                covariates=dfs.get("covariates") if dfs.get("covariates") is not None else None,
+            cache_key = self._build_query_cache_key(
+                search_type="local",
+                query=query,
                 community_level=community_level,
                 response_type=response_type,
-                query=query,
+            )
+            cached = GraphRAGQueryEngine._query_cache.get(cache_key)
+            if cached is not None:
+                print(f"[GraphRAG] 命中本地搜索缓存 (kg={self.kg_id})")
+                return cached
+
+            query_timeout_seconds = self._get_query_timeout_seconds(timeout_seconds)
+            response, context_data = await asyncio.wait_for(
+                api.local_search(
+                    config=config,
+                    entities=dfs["entities"],
+                    communities=dfs["communities"],
+                    community_reports=dfs["community_reports"],
+                    text_units=dfs["text_units"],
+                    relationships=dfs["relationships"],
+                    covariates=dfs.get("covariates") if dfs.get("covariates") is not None else None,
+                    community_level=community_level,
+                    response_type=response_type,
+                    query=query,
+                ),
+                timeout=query_timeout_seconds,
             )
 
-            return str(response) if not isinstance(response, str) else response, context_data
+            normalized_result = (
+                str(response) if not isinstance(response, str) else response,
+                context_data,
+            )
+            GraphRAGQueryEngine._query_cache[cache_key] = normalized_result
+
+            return normalized_result
 
         except ImportError:
             raise RuntimeError(
                 "graphrag 库未安装，当前项目只支持基于标准 GraphRAG 产物执行正式 query"
             )
+        except asyncio.TimeoutError as e:
+            raise RuntimeError(
+                f"GraphRAG local search 超时 (kg={self.kg_id})，"
+                "请检查模型服务可用性或调大 GRAPHRAG_QUERY_TIMEOUT_SECONDS"
+            ) from e
         except Exception as e:
             print(f"[GraphRAG] 本地搜索失败: {e}")
             import traceback
@@ -714,7 +773,8 @@ class GraphRAGQueryEngine:
         query: str,
         community_level: int = 2,
         response_type: str = "Multiple Paragraphs",
-        dynamic_community_selection: bool = False
+        dynamic_community_selection: bool = False,
+        timeout_seconds: Optional[float] = None,
     ) -> Tuple[Any, Any]:
         """
         执行全局搜索（Global Search）
@@ -743,23 +803,50 @@ class GraphRAGQueryEngine:
                     f"{self._config_error or 'settings.yaml 未找到或加载失败'}"
                 )
 
-            response, context_data = await api.global_search(
-                config=config,
-                entities=dfs["entities"],
-                communities=dfs["communities"],
-                community_reports=dfs["community_reports"],
-                community_level=community_level,
-                dynamic_community_selection=dynamic_community_selection,
-                response_type=response_type,
+            cache_key = self._build_query_cache_key(
+                search_type="global",
                 query=query,
+                community_level=community_level,
+                response_type=response_type,
+                dynamic_community_selection=dynamic_community_selection,
+            )
+            cached = GraphRAGQueryEngine._query_cache.get(cache_key)
+            if cached is not None:
+                print(f"[GraphRAG] 命中全局搜索缓存 (kg={self.kg_id})")
+                return cached
+
+            query_timeout_seconds = self._get_query_timeout_seconds(timeout_seconds)
+            response, context_data = await asyncio.wait_for(
+                api.global_search(
+                    config=config,
+                    entities=dfs["entities"],
+                    communities=dfs["communities"],
+                    community_reports=dfs["community_reports"],
+                    community_level=community_level,
+                    dynamic_community_selection=dynamic_community_selection,
+                    response_type=response_type,
+                    query=query,
+                ),
+                timeout=query_timeout_seconds,
             )
 
-            return str(response) if not isinstance(response, str) else response, context_data
+            normalized_result = (
+                str(response) if not isinstance(response, str) else response,
+                context_data,
+            )
+            GraphRAGQueryEngine._query_cache[cache_key] = normalized_result
+
+            return normalized_result
 
         except ImportError:
             raise RuntimeError(
                 "graphrag 库未安装，当前项目只支持基于标准 GraphRAG 产物执行正式 query"
             )
+        except asyncio.TimeoutError as e:
+            raise RuntimeError(
+                f"GraphRAG global search 超时 (kg={self.kg_id})，"
+                "请检查模型服务可用性或调大 GRAPHRAG_QUERY_TIMEOUT_SECONDS"
+            ) from e
         except Exception as e:
             print(f"[GraphRAG] 全局搜索失败: {e}")
             import traceback
