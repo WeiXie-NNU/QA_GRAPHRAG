@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useId, useMemo, useState } from "react";
 import { loadAdminGeoJson, loadRepositoryRegistry, type RepositoryRegistry } from "../../services/resourceService";
 
 type InterruptValue = {
@@ -151,7 +151,8 @@ function buildSummaryLines(value: InterruptValue, formState: ReviewFormState): s
 export const HITLInterruptCard: React.FC<{
   eventValue: unknown;
   resolve: (value: any) => void;
-}> = ({ eventValue, resolve }) => {
+  summaryMode?: "inline" | "floating" | "hidden";
+}> = ({ eventValue, resolve, summaryMode = "inline" }) => {
   const value = useMemo(() => parseInterruptValue(eventValue), [eventValue]);
   const interruptKey = useMemo(() => JSON.stringify(value), [value]);
   const task = String(value.task || "请人工确认");
@@ -173,6 +174,7 @@ export const HITLInterruptCard: React.FC<{
   const [isDrawerOpen, setIsDrawerOpen] = useState(true);
   const [showEntityJson, setShowEntityJson] = useState(false);
   const [showContextJson, setShowContextJson] = useState(false);
+  const dialogTitleId = useId();
 
   useEffect(() => {
     setFormState(createInitialFormState(value));
@@ -222,6 +224,27 @@ export const HITLInterruptCard: React.FC<{
       cancelled = true;
     };
   }, [interruptKey, isEntityReview]);
+
+  useEffect(() => {
+    if (!isDrawerOpen) {
+      return;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !submittingAction) {
+        setIsDrawerOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isDrawerOpen, submittingAction]);
 
   function updateFormField<K extends keyof ReviewFormState>(key: K, nextValue: ReviewFormState[K]) {
     setFormState((prev) => {
@@ -483,50 +506,54 @@ export const HITLInterruptCard: React.FC<{
 
   return (
     <>
-      <div className="hitl-card">
-        <div className="hitl-card-header">
-          <div className="hitl-card-heading">
-            <span className="hitl-card-badge">HITL</span>
-            <span className="hitl-card-title">人工审核</span>
+      {summaryMode !== "hidden" ? (
+        <div className={summaryMode === "floating" ? "hitl-floating-anchor" : undefined}>
+          <div className="hitl-card">
+            <div className="hitl-card-header">
+              <div className="hitl-card-heading">
+                <span className="hitl-card-badge">HITL</span>
+                <span className="hitl-card-title">人工审核</span>
+              </div>
+              <span className="hitl-status-pill">待处理</span>
+            </div>
+
+            <div className="hitl-card-task">{task}</div>
+            <div className="hitl-card-summary">{resourceHint}</div>
+
+            {summaryLines.length ? (
+              <div className="hitl-card-meta">
+                {summaryLines.map((line) => (
+                  <span key={line} className="hitl-meta-chip">
+                    {line}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+
+            {!!(requiredFields.length || missingFields.length) && (
+              <div className="hitl-card-tags">
+                {requiredFields.map((field) => (
+                  <span key={field} className="hitl-tag">
+                    {field}
+                  </span>
+                ))}
+                {missingFields.map((field) => (
+                  <span key={`missing-${field}`} className="hitl-tag missing">
+                    缺失 {field}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="hitl-card-inline-actions">
+              <button type="button" className="hitl-btn primary" onClick={() => setIsDrawerOpen(true)}>
+                打开审核面板
+              </button>
+              <span className="hitl-inline-note">处理中断前，聊天输入会暂时锁定。</span>
+            </div>
           </div>
-          <span className="hitl-status-pill">待处理</span>
         </div>
-
-        <div className="hitl-card-task">{task}</div>
-        <div className="hitl-card-summary">{resourceHint}</div>
-
-        {summaryLines.length ? (
-          <div className="hitl-card-meta">
-            {summaryLines.map((line) => (
-              <span key={line} className="hitl-meta-chip">
-                {line}
-              </span>
-            ))}
-          </div>
-        ) : null}
-
-        {!!(requiredFields.length || missingFields.length) && (
-          <div className="hitl-card-tags">
-            {requiredFields.map((field) => (
-              <span key={field} className="hitl-tag">
-                {field}
-              </span>
-            ))}
-            {missingFields.map((field) => (
-              <span key={`missing-${field}`} className="hitl-tag missing">
-                缺失 {field}
-              </span>
-            ))}
-          </div>
-        )}
-
-        <div className="hitl-card-inline-actions">
-          <button type="button" className="hitl-btn primary" onClick={() => setIsDrawerOpen(true)}>
-            打开审核面板
-          </button>
-          <span className="hitl-inline-note">处理中断前，聊天输入会暂时锁定。</span>
-        </div>
-      </div>
+      ) : null}
 
       {isDrawerOpen ? (
         <>
@@ -536,12 +563,18 @@ export const HITLInterruptCard: React.FC<{
             aria-label="关闭人工审核面板"
             onClick={() => setIsDrawerOpen(false)}
           />
-          <aside className="hitl-drawer" aria-label="人工审核面板">
+          <aside
+            className="hitl-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={dialogTitleId}
+            aria-label="人工审核面板"
+          >
             <div className="hitl-drawer-header">
               <div>
                 <div className="hitl-card-heading">
                   <span className="hitl-card-badge">HITL</span>
-                  <span className="hitl-card-title">人工审核</span>
+                  <span className="hitl-card-title" id={dialogTitleId}>人工审核</span>
                 </div>
                 <div className="hitl-drawer-task">{task}</div>
                 <div className="hitl-drawer-subtitle">
