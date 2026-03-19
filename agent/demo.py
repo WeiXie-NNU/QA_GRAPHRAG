@@ -681,6 +681,7 @@ async def extract_case_from_paper(payload: CaseExtractionRequest):
             payload.extractor_type,
             paper_text,
             payload.paper_title.strip(),
+            payload.llm_model.strip(),
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

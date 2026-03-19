@@ -17,6 +17,7 @@ class CaseExtractionRequest(BaseModel):
     extractor_type: ExtractorType = Field(description="案例提取器类型")
     paper_text: str = Field(min_length=20, description="论文正文文本")
     paper_title: str = Field(default="", description="论文标题，可选")
+    llm_model: str = Field(default="", description="用于提取的 LLM 模型，可选")
 
 
 class CaseExtractionResponse(BaseModel):
@@ -80,12 +81,17 @@ def normalize_llm_output(raw_output: str) -> Dict[str, Any]:
         }
 
 
-def invoke_case_extraction(extractor_type: ExtractorType, paper_text: str, paper_title: str) -> Dict[str, Any]:
+def invoke_case_extraction(
+    extractor_type: ExtractorType,
+    paper_text: str,
+    paper_title: str,
+    llm_model: str = "",
+) -> Dict[str, Any]:
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("缺少 OPENAI_API_KEY，无法执行案例提取。")
 
-    model = get_llm_model()
+    model = llm_model.strip() or get_llm_model()
     llm = ChatOpenAI(
         model=model,
         temperature=0,
