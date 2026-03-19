@@ -119,17 +119,32 @@ async def fetch_thread_messages_page(
     db_conn: Any,
     thread_id: str,
     before_id: Optional[int] = None,
+    before_message_id: Optional[str] = None,
     limit: int = 40,
 ) -> Dict[str, Any]:
+    effective_before_id = before_id
+    if effective_before_id is None and before_message_id:
+        async with db_conn.execute(
+            """
+            SELECT id
+            FROM thread_messages
+            WHERE thread_id = ? AND message_id = ?
+            LIMIT 1
+            """,
+            (thread_id, before_message_id),
+        ) as cursor:
+            row = await cursor.fetchone()
+            effective_before_id = int(row[0]) if row else -1
+
     params: List[Any] = [thread_id]
     query = """
         SELECT id, message_id, role, content, created_at
         FROM thread_messages
         WHERE thread_id = ?
     """
-    if before_id is not None:
+    if effective_before_id is not None:
         query += " AND id < ?"
-        params.append(before_id)
+        params.append(effective_before_id)
     query += " ORDER BY id DESC LIMIT ?"
     params.append(limit)
 

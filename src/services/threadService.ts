@@ -579,6 +579,7 @@ export async function getThreadMessagesPage(
   threadId: string,
   options: {
     beforeId?: number | null;
+    beforeMessageId?: string | null;
     limit?: number;
     agent?: AgentType;
   } = {},
@@ -587,6 +588,9 @@ export async function getThreadMessagesPage(
     const params = new URLSearchParams();
     if (options.beforeId != null) {
       params.set("before_id", String(options.beforeId));
+    }
+    if (options.beforeMessageId) {
+      params.set("before_message_id", String(options.beforeMessageId));
     }
     params.set("limit", String(options.limit ?? 40));
     if (options.agent) {
