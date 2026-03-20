@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import "./IndexPage.css";
-import { CHAT_SUGGESTIONS, CHAT_TITLE, TIANDITU_API_KEY } from "../lib/consts";
+import { CHAT_TITLE, TIANDITU_API_KEY } from "../lib/consts";
 import { loadAdminGeoJson } from "../services/resourceService";
 import { createNewThreadId } from "../services/threadService";
 import { useAuth } from "../contexts";
@@ -57,14 +57,192 @@ const demoFlow = [
   "导出结果用于汇报",
 ];
 
-const stack = [
-  "React + TypeScript",
-  "Vite + CopilotKit",
-  "Node Runtime + Express",
-  "FastAPI + LangGraph",
-  "Neo4j + SQLite",
-  "Three.js + Force Graph",
+const architectureSignals = [
+  "更容易上手",
+  "支持续聊记忆",
+  "多步智能分析",
+  "证据与地图联动",
 ];
+
+const architectureExplorerPanels = [
+  {
+    id: "entry",
+    title: "统一入口体验",
+    headline: "从首页到问答页切换自然，第一次进入也能快速开始演示。",
+    summary:
+      "用户从首页登录后即可进入问答工作台，不需要理解底层流程，也能顺畅完成提问、查看结果和继续追问。",
+    details: [
+      "首页即入口，登录、进入系统、查看演示问题都集中在同一位置",
+      "从开始提问到查看图谱和地图，不需要跳出当前工作流",
+      "适合产品演示、汇报介绍和第一次上手体验",
+    ],
+    relatedLayers: ["entry"],
+    accent: "#9b8cff",
+    soft: "rgba(155, 140, 255, 0.18)",
+    surfaceCards: [
+      { title: "首页入口", caption: "登录后即可开始提问" },
+      { title: "对话工作台", caption: "问题、结果与追问在同一页" },
+      { title: "结果联动", caption: "图谱与地图同步联动查看" },
+    ],
+    floatingBadges: ["单入口", "低学习成本", "演示友好"],
+  },
+  {
+    id: "memory",
+    title: "会话记忆与续聊",
+    headline: "每次回来都能接着问，而不是重新开始。",
+    summary:
+      "系统会保留每条对话线程的上下文、历史回答和关键状态，让用户继续追问时仍然保持前后连贯。",
+    details: [
+      "线程化会话让不同问题和不同用户彼此分开",
+      "支持继续追问、补充条件和回看历史结果",
+      "演示现场切换线程时，状态和内容都能平滑恢复",
+    ],
+    relatedLayers: ["entry", "memory"],
+    accent: "#f2c94c",
+    soft: "rgba(242, 201, 76, 0.2)",
+    surfaceCards: [
+      { title: "历史线程", caption: "不同主题的会话彼此独立" },
+      { title: "状态恢复", caption: "返回时自动接上此前上下文" },
+      { title: "继续追问", caption: "补充条件后仍保持连贯" },
+    ],
+    floatingBadges: ["线程记忆", "续聊体验", "状态恢复"],
+  },
+  {
+    id: "reasoning",
+    title: "多步智能推理",
+    headline: "系统会自动拆解问题、逐步分析，再给出更可信的回答。",
+    summary:
+      "面对复杂问题时，系统不是直接生成一句答案，而是先理解问题、组织推理步骤、再综合输出，过程更清晰。",
+    details: [
+      "先理解问题意图，再进入多步骤分析",
+      "重要节点可以进行人工确认，避免关键信息遗漏",
+      "最终答案会结合检索结果和推理结论一起给出",
+    ],
+    relatedLayers: ["reasoning"],
+    accent: "#5b7cff",
+    soft: "rgba(91, 124, 255, 0.18)",
+    surfaceCards: [
+      { title: "问题理解", caption: "先识别意图和任务重点" },
+      { title: "步骤推理", caption: "分步分析而不是直接给结论" },
+      { title: "质量复核", caption: "关键节点可进行人工确认" },
+    ],
+    floatingBadges: ["多步推理", "过程可见", "更可信"],
+  },
+  {
+    id: "evidence",
+    title: "证据与空间线索",
+    headline: "不只告诉你结论，还告诉你依据和相关区域线索。",
+    summary:
+      "系统会把图谱关系、证据摘要、地图点位和区域分布放到一起，帮助用户理解结论从哪里来。",
+    details: [
+      "图谱关系和证据摘要可以一起查看",
+      "地图点位和区域统计帮助理解空间分布",
+      "更适合需要解释来源、复核结果的场景",
+    ],
+    relatedLayers: ["evidence"],
+    accent: "#63dfbf",
+    soft: "rgba(99, 223, 191, 0.18)",
+    surfaceCards: [
+      { title: "证据链", caption: "答案与依据同时展示" },
+      { title: "关系图谱", caption: "实体关系帮助理解来龙去脉" },
+      { title: "地图线索", caption: "空间分布与区域特征一起看" },
+    ],
+    floatingBadges: ["证据可见", "地图联动", "空间洞察"],
+  },
+  {
+    id: "delivery",
+    title: "演示与复核输出",
+    headline: "既能用来现场演示，也方便人工确认和结果复盘。",
+    summary:
+      "整个界面围绕“看得懂、讲得清、能复核”来设计，用户能快速理解系统特点，也能回看关键依据与过程。",
+    details: [
+      "回答、步骤、证据、地图在一个页面联动展示",
+      "适合对外演示、内部沟通和人工确认",
+      "减少只看结论时的信息断层",
+    ],
+    relatedLayers: ["delivery"],
+    accent: "#ff9e57",
+    soft: "rgba(255, 158, 87, 0.18)",
+    surfaceCards: [
+      { title: "展示输出", caption: "面向汇报的清晰表达方式" },
+      { title: "人工复核", caption: "关键信息可以快速回看确认" },
+      { title: "多视图联动", caption: "回答、证据和空间信息同屏呈现" },
+    ],
+    floatingBadges: ["汇报友好", "可解释", "可复盘"],
+  },
+] as const;
+
+const caseIntakeSteps = [
+  {
+    title: "手动上传材料",
+    text: "支持上传案例文档、报告或整理后的原始材料，作为新的案例来源。",
+  },
+  {
+    title: "自动抽取字段",
+    text: "系统对案例中的关键内容进行结构化抽取，整理主题、区域、参数和证据摘要。",
+  },
+  {
+    title: "沉淀进入案例库",
+    text: "整理后的案例可直接入库，为后续相似问题检索、对比分析和汇报展示提供基础。",
+  },
+] as const;
+
+const caseIntakeBenefits = [
+  "补充案例库内容，不只依赖已有样本",
+  "让后续问答能参考更多历史案例与经验",
+  "把上传、抽取、入库做成统一流程，便于演示与维护",
+] as const;
+
+const architecturePlatformLayers = [
+  {
+    id: "entry",
+    title: "会话编排",
+    caption: "承接首页入口、线程创建与工作台联动",
+    panelId: "entry",
+  },
+  {
+    id: "memory",
+    title: "上下文记忆",
+    caption: "保存历史状态，让用户追问自然不断线",
+    panelId: "memory",
+  },
+  {
+    id: "reasoning",
+    title: "多步推理",
+    caption: "理解问题、拆解步骤并组织可信回答",
+    panelId: "reasoning",
+  },
+  {
+    id: "evidence",
+    title: "证据整合",
+    caption: "把图谱、地图和摘要证据并入分析链路",
+    panelId: "evidence",
+  },
+  {
+    id: "delivery",
+    title: "展示复核",
+    caption: "把结果包装成更适合演示与确认的输出",
+    panelId: "delivery",
+  },
+] as const;
+
+const architectureKnowledgeAssets = [
+  {
+    id: "cases",
+    title: "案例库",
+    caption: "沉淀相似问题、参数经验与历史结果参考",
+  },
+  {
+    id: "graph",
+    title: "知识图谱",
+    caption: "组织实体与关系，为答案建立解释链路",
+  },
+  {
+    id: "geo",
+    title: "空间线索",
+    caption: "连接地图点位、区域分布与地理证据",
+  },
+] as const;
 
 function parseCsvLine(line: string): string[] {
   const fields: string[] = [];
@@ -304,6 +482,7 @@ export const IndexPage: React.FC = () => {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [loginName, setLoginName] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [activeArchitecturePanelId, setActiveArchitecturePanelId] = useState<string>("memory");
 
   const handleEnterSystem = () => {
     if (!currentUser) {
@@ -316,7 +495,7 @@ export const IndexPage: React.FC = () => {
   };
 
   const handleJumpToGithub = () => {
-    window.open("https://github.com/WeiXie-NNU/graph-rag-agent", "_blank");
+    window.open("https://github.com/WeiXie-NNU/QA_GRAPHRAG", "_blank");
   };
 
   const loginSuggestions = useMemo(() => {
@@ -442,6 +621,13 @@ export const IndexPage: React.FC = () => {
     [adminGeoData, adminLevel, csvCases],
   );
 
+  const activeArchitecturePanel = useMemo(
+    () =>
+      architectureExplorerPanels.find((panel) => panel.id === activeArchitecturePanelId) ??
+      architectureExplorerPanels[0],
+    [activeArchitecturePanelId],
+  );
+
   return (
     <div className="index-page">
       <header className="index-header">
@@ -449,10 +635,10 @@ export const IndexPage: React.FC = () => {
           <a className="logo" href="#intro">GraphRAG Agent</a>
           <nav className="nav-links">
             <a href="#overview">产品能力</a>
+            <a href="#architecture">架构设计</a>
             <a href="#demo">演示流程</a>
+            <a href="#case-intake">案例抽取</a>
             <a href="#spatial">空间分布</a>
-            <a href="#cases">演示问题</a>
-            <a href="#stack">技术栈</a>
           </nav>
           <div className="header-actions">
             <button
@@ -531,10 +717,186 @@ export const IndexPage: React.FC = () => {
           </div>
         </section>
 
+        <section id="architecture" className="content-section architecture-section">
+          <div className="section-head architecture-head">
+            <p>架构设计</p>
+            <h2>面向用户体验的智能问答系统能力</h2>
+          </div>
+
+          <div className="architecture-signal-row">
+            {architectureSignals.map((signal) => (
+              <span key={signal}>{signal}</span>
+            ))}
+          </div>
+
+          <div className="architecture-explorer">
+            <div className="architecture-accordion">
+              {architectureExplorerPanels.map((panel) => {
+                const isActive = panel.id === activeArchitecturePanel.id;
+                return (
+                  <article
+                    key={panel.id}
+                    className={`architecture-accordion-card ${isActive ? "active" : ""}`}
+                    style={
+                      {
+                        "--architecture-accent": panel.accent,
+                        "--architecture-soft": panel.soft,
+                      } as React.CSSProperties
+                    }
+                  >
+                    <button
+                      type="button"
+                      className="architecture-accordion-trigger"
+                      onClick={() => setActiveArchitecturePanelId(panel.id)}
+                    >
+                      <span>{panel.title}</span>
+                      <span className="architecture-accordion-icon">{isActive ? "−" : "+"}</span>
+                    </button>
+
+                    {isActive ? (
+                      <div className="architecture-accordion-body">
+                        <h3>{panel.headline}</h3>
+                        <p>{panel.summary}</p>
+                        <div className="architecture-chip-row">
+                          {panel.floatingBadges.map((badge) => (
+                            <span key={badge}>{badge}</span>
+                          ))}
+                        </div>
+                        <ul>
+                          {panel.details.map((detail) => (
+                            <li key={detail}>{detail}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+
+            <div
+              className="architecture-scene"
+              style={
+                {
+                  "--scene-accent": activeArchitecturePanel.accent,
+                  "--scene-soft": activeArchitecturePanel.soft,
+                } as React.CSSProperties
+              }
+            >
+              <div className="scene-user-layer">
+                <div className="scene-layer-chip">用户层</div>
+                <div className="scene-user-board">
+                  <div className="scene-user-card-grid">
+                    {activeArchitecturePanel.surfaceCards.map((card, index) => (
+                      <article
+                        key={card.title}
+                        className={`scene-user-card scene-user-card-${index + 1}`}
+                      >
+                        <div className="scene-user-card-screen">
+                          <span />
+                          <span />
+                          <span />
+                        </div>
+                        <strong>{card.title}</strong>
+                        <p>{card.caption}</p>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="scene-platform-layer">
+                
+                <svg className="scene-connector-lines" viewBox="0 0 1000 760" preserveAspectRatio="none" aria-hidden="true">
+                  <defs>
+                    <marker
+                      id="scene-arrow"
+                      markerWidth="10"
+                      markerHeight="10"
+                      refX="8"
+                      refY="5"
+                      orient="auto"
+                      markerUnits="userSpaceOnUse"
+                    >
+                      <path
+                        d="M1 1 L8 5 L1 9"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.25"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </marker>
+                  </defs>
+                  <circle cx="604" cy="388" r="2.8" className="scene-connector-hub" />
+                  <path d="M604 388 C580 310 530 226 468 152" markerEnd="url(#scene-arrow)" />
+                  <path d="M604 388 C604 306 604 228 604 152" markerEnd="url(#scene-arrow)" />
+                  <path d="M604 388 C628 310 678 226 740 152" markerEnd="url(#scene-arrow)" />
+                  <path d="M604 388 C580 468 532 560 480 662" markerEnd="url(#scene-arrow)" />
+                  <path d="M604 388 C604 476 604 566 604 662" markerEnd="url(#scene-arrow)" />
+                  <path d="M604 388 C628 468 676 560 728 662" markerEnd="url(#scene-arrow)" />
+                </svg>
+
+                <div className="scene-platform-rail">
+                  {architecturePlatformLayers.map((layer, index) => {
+                    const isActive = (activeArchitecturePanel.relatedLayers as readonly string[]).includes(layer.id);
+                    return (
+                      <button
+                        key={layer.id}
+                        type="button"
+                        className={`scene-platform-pill scene-platform-pill-${index + 1} ${isActive ? "active" : ""}`}
+                        onClick={() => setActiveArchitecturePanelId(layer.panelId)}
+                      >
+                        {layer.title}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="scene-platform-center">
+                  
+                  <div className="scene-platform-stack">
+                    {architecturePlatformLayers.map((layer, index) => {
+                      const isActive = (activeArchitecturePanel.relatedLayers as readonly string[]).includes(layer.id);
+                      return (
+                        <button
+                          key={layer.id}
+                          type="button"
+                          className={`scene-diamond scene-diamond-${index + 1} ${isActive ? "active" : ""}`}
+                          onClick={() => setActiveArchitecturePanelId(layer.panelId)}
+                        >
+                          <strong>{layer.title}</strong>
+                          <span>{layer.caption}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="scene-knowledge-layer">
+                <div className="scene-layer-chip">知识层</div>
+
+                <div className="scene-knowledge-board">
+                  {architectureKnowledgeAssets.map((asset) => (
+                      <article
+                        key={asset.id}
+                        className="scene-knowledge-card"
+                      >
+                        <strong>{asset.title}</strong>
+                        <span>{asset.caption}</span>
+                      </article>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <section id="demo" className="content-section workflow-section">
           <div className="section-head">
             <p>演示流程</p>
-            <h2>一条标准 Demo 路径</h2>
+            <h2>智能体推理流程</h2>
           </div>
           <div className="demo-panel">
             <div className="demo-chat-box">
@@ -559,6 +921,57 @@ export const IndexPage: React.FC = () => {
                 <p>{step}</p>
               </div>
             ))}
+          </div>
+        </section>
+
+        <section id="case-intake" className="content-section case-intake-section">
+          <div className="section-head">
+            <p>案例抽取</p>
+            <h2>手动上传并抽取案例入库</h2>
+          </div>
+
+          <div className="case-intake-grid">
+            <article className="case-intake-card case-intake-flow-card">
+              <div className="case-intake-upload-mock">
+                <div className="case-intake-upload-icon">+</div>
+                <div>
+                  <strong>上传案例材料</strong>
+                  <span>支持文档、报告与整理后的案例文件</span>
+                </div>
+              </div>
+
+              <div className="case-intake-step-list">
+                {caseIntakeSteps.map((step, index) => (
+                  <div className="case-intake-step" key={step.title}>
+                    <div className="case-intake-step-index">{String(index + 1).padStart(2, "0")}</div>
+                    <div>
+                      <h3>{step.title}</h3>
+                      <p>{step.text}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </article>
+
+            <article className="case-intake-card case-intake-value-card">
+              <div className="case-intake-badge">Case Pipeline</div>
+              <h3>把新增案例持续沉淀为系统资产</h3>
+              <p>
+                这个模块面向日常运营和案例补充场景，让系统不仅能回答问题，也能不断扩充自己的案例基础。
+              </p>
+
+              <div className="case-intake-pill-row">
+                <span>手动上传</span>
+                <span>结构抽取</span>
+                <span>案例入库</span>
+              </div>
+
+              <ul>
+                {caseIntakeBenefits.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </article>
           </div>
         </section>
 
@@ -639,32 +1052,13 @@ export const IndexPage: React.FC = () => {
           </div>
         </section>
 
-        <section id="cases" className="content-section case-section">
+        <section className="content-section">
           <div className="section-head">
-            <p>演示问题</p>
-            <h2>可直接用于现场演示的话题</h2>
-          </div>
-          <div className="case-grid">
-            {CHAT_SUGGESTIONS.test.slice(0, 4).map((item) => (
-              <article key={item} className="case-card">
-                <p>{item}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section id="stack" className="content-section stack-section">
-          <div className="section-head">
-            <p>技术栈</p>
-            <h2>前后端协同，支持局域网演示部署</h2>
-          </div>
-          <div className="stack-list">
-            {stack.map((item) => (
-              <span key={item}>{item}</span>
-            ))}
+            <p>系统展示</p>
+            <h2>现在开始你的使用</h2>
           </div>
           <div className="final-cta">
-            <h3>现在开始你的产品演示</h3>
+            {/* <h3>现在开始你的使用</h3> */}
             <p>从首页进入系统即可创建新线程，快速完成一次端到端演示。</p>
             <div className="hero-actions">
               <button className="btn-primary" onClick={handleEnterSystem}>

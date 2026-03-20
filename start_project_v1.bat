@@ -9,7 +9,7 @@ echo.
 
 REM 获取当前目录
 set ROOT_DIR=%~dp0
-set AGENT_PORT=8090
+set AGENT_PORT=8091
 set AGENT_BASE_URL=http://127.0.0.1:%AGENT_PORT%
 
 REM 1. 启动 Python Agent 后端服务器

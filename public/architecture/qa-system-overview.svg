@@ -1,0 +1,183 @@
+<svg width="1440" height="920" viewBox="0 0 1440 920" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="70" y1="60" x2="1380" y2="860" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8F7FF"/>
+      <stop offset="0.5" stop-color="#F4FAFF"/>
+      <stop offset="1" stop-color="#FFF8F0"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="162" y1="92" x2="1286" y2="828" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#FBFCFF" stop-opacity="0.98"/>
+    </linearGradient>
+    <linearGradient id="blueCard" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#E8F0FF"/>
+      <stop offset="1" stop-color="#F8FBFF"/>
+    </linearGradient>
+    <linearGradient id="violetCard" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#F2EBFF"/>
+      <stop offset="1" stop-color="#FCFAFF"/>
+    </linearGradient>
+    <linearGradient id="orangeCard" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#FFF0E1"/>
+      <stop offset="1" stop-color="#FFF9F4"/>
+    </linearGradient>
+    <linearGradient id="mintCard" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#E9FFF7"/>
+      <stop offset="1" stop-color="#F8FFFD"/>
+    </linearGradient>
+    <filter id="shadow" x="-40" y="-40" width="1520" height="1000" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="26" stdDeviation="24" flood-color="#64748B" flood-opacity="0.14"/>
+    </filter>
+    <filter id="soft" x="-30" y="-30" width="200" height="200" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="18"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5B67F1"/>
+    </marker>
+    <marker id="arrowDark" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#334155"/>
+    </marker>
+    <style>
+      .title { font: 700 38px 'Noto Sans SC', 'Microsoft YaHei', sans-serif; fill: #162033; }
+      .subtitle { font: 500 18px 'Noto Sans SC', 'Microsoft YaHei', sans-serif; fill: #526075; }
+      .card-title { font: 700 24px 'Noto Sans SC', 'Microsoft YaHei', sans-serif; fill: #162033; }
+      .card-copy { font: 500 15px 'Noto Sans SC', 'Microsoft YaHei', sans-serif; fill: #526075; }
+      .small { font: 600 13px 'Space Grotesk', 'Segoe UI', sans-serif; fill: #44516A; letter-spacing: 0.08em; text-transform: uppercase; }
+      .chip { font: 600 13px 'Noto Sans SC', 'Microsoft YaHei', sans-serif; fill: #314158; }
+      .node { font: 700 14px 'Space Grotesk', 'Segoe UI', sans-serif; fill: #1D2840; }
+      .bullet { font: 500 14px 'Noto Sans SC', 'Microsoft YaHei', sans-serif; fill: #4D5B70; }
+      .pillText { font: 700 13px 'Space Grotesk', 'Segoe UI', sans-serif; fill: #43506A; }
+      .micro { font: 600 12px 'Noto Sans SC', 'Microsoft YaHei', sans-serif; fill: #5A6880; }
+    </style>
+  </defs>
+
+  <rect width="1440" height="920" rx="42" fill="url(#bg)"/>
+  <g filter="url(#soft)" opacity="0.35">
+    <circle cx="270" cy="170" r="95" fill="#A5B4FC"/>
+    <circle cx="1180" cy="170" r="120" fill="#7DD3FC"/>
+    <circle cx="1080" cy="760" r="140" fill="#F9A8D4"/>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="56" y="58" width="1328" height="804" rx="40" fill="url(#panel)" stroke="#E4E9F6"/>
+  </g>
+
+  <text x="92" y="124" class="small">System Architecture</text>
+  <text x="92" y="168" class="title">QA GraphRAG 平台总览</text>
+  <text x="92" y="201" class="subtitle">从演示入口、CopilotKit Runtime 到 LangGraph Agent 与知识仓库的完整闭环</text>
+
+  <rect x="92" y="236" width="248" height="30" rx="15" fill="#EEF2FF" stroke="#CDD8FF"/>
+  <text x="116" y="255" class="pillText">Frontend 3000</text>
+  <rect x="356" y="236" width="248" height="30" rx="15" fill="#EEFDF8" stroke="#B9F2DA"/>
+  <text x="384" y="255" class="pillText">Runtime 4000</text>
+  <rect x="620" y="236" width="276" height="30" rx="15" fill="#FFF3E8" stroke="#FFD3AE"/>
+  <text x="650" y="255" class="pillText">FastAPI Agent 8090</text>
+
+  <g>
+    <rect x="92" y="300" width="264" height="308" rx="28" fill="url(#orangeCard)" stroke="#F7CAA6"/>
+    <rect x="118" y="332" width="126" height="34" rx="17" fill="#FFFFFF" stroke="#F1D2B4"/>
+    <text x="142" y="353" class="node">Users / Demo</text>
+    <text x="122" y="398" class="card-title">演示入口与提问场景</text>
+    <text x="122" y="432" class="card-copy">首页负责登录、线程创建和演示入口，用户从单一界面发起问题，再进入问答页查看图谱、证据和地图联动。</text>
+    <rect x="122" y="472" width="204" height="96" rx="20" fill="#FFFFFF" stroke="#E9D5C6"/>
+    <text x="142" y="504" class="chip">“推荐苏州地区 Cab 与 LAI 参数区间”</text>
+    <text x="142" y="532" class="micro">现场可观察：</text>
+    <text x="142" y="556" class="bullet">• 登录与线程化会话</text>
+    <text x="142" y="580" class="bullet">• 回答、证据、地图同步展示</text>
+    <circle cx="274" cy="522" r="28" fill="#FFE5CF"/>
+    <circle cx="274" cy="522" r="12" fill="#F59E0B"/>
+  </g>
+
+  <g>
+    <rect x="414" y="296" width="370" height="348" rx="30" fill="url(#blueCard)" stroke="#C8DAFF"/>
+    <rect x="444" y="326" width="184" height="34" rx="17" fill="#FFFFFF" stroke="#D7E3FF"/>
+    <text x="470" y="347" class="node">Frontend Workspace</text>
+    <text x="444" y="393" class="card-title">React 展示层</text>
+    <text x="444" y="426" class="card-copy">IndexPage、ChatArea、ProgressDisplay、GraphRAGResults 与 GeoVisualization 共同组成展示工作台。</text>
+
+    <rect x="444" y="458" width="142" height="74" rx="20" fill="#FFFFFF" stroke="#D8E4FF"/>
+    <text x="466" y="486" class="node">Index / Login</text>
+    <text x="466" y="509" class="micro">首页、登录、入口导航</text>
+
+    <rect x="602" y="458" width="152" height="74" rx="20" fill="#FFFFFF" stroke="#D8E4FF"/>
+    <text x="625" y="486" class="node">ChatArea</text>
+    <text x="625" y="509" class="micro">线程、消息与多轮追问</text>
+
+    <rect x="444" y="548" width="142" height="74" rx="20" fill="#FFFFFF" stroke="#D8E4FF"/>
+    <text x="459" y="576" class="node">ProgressDisplay</text>
+    <text x="458" y="599" class="micro">步骤进度实时同步</text>
+
+    <rect x="602" y="548" width="152" height="74" rx="20" fill="#FFFFFF" stroke="#D8E4FF"/>
+    <text x="617" y="576" class="node">Graph + Geo</text>
+    <text x="617" y="599" class="micro">图谱、地图、证据面板</text>
+  </g>
+
+  <g>
+    <rect x="490" y="682" width="228" height="92" rx="26" fill="url(#violetCard)" stroke="#D8C8FF"/>
+    <rect x="514" y="704" width="112" height="28" rx="14" fill="#FFFFFF" stroke="#E2D7FF"/>
+    <text x="534" y="723" class="node">CopilotKit</text>
+    <text x="514" y="752" class="card-title" font-size="22">Runtime 中转层</text>
+    <text x="514" y="779" class="card-copy">Express / LangGraphHttpAgent / loadAgentState / OpenAIAdapter</text>
+  </g>
+
+  <g>
+    <rect x="838" y="286" width="492" height="372" rx="32" fill="url(#mintCard)" stroke="#BEE8D9"/>
+    <rect x="866" y="318" width="224" height="34" rx="17" fill="#FFFFFF" stroke="#D3EEE3"/>
+    <text x="892" y="339" class="node">Python Agent Brain</text>
+    <text x="866" y="386" class="card-title">FastAPI + LangGraph 编排层</text>
+    <text x="866" y="420" class="card-copy">统一注册 `/copilotkit/agents/test`，通过 SessionGraphManager 做 thread_id 隔离，并落地线程、状态、GraphRAG 与 Geo 数据。</text>
+
+    <rect x="866" y="454" width="204" height="76" rx="22" fill="#FFFFFF" stroke="#D2ECE1"/>
+    <text x="890" y="482" class="node">SessionGraphManager</text>
+    <text x="890" y="506" class="micro">共享 SQLite，按 thread_id 隔离图实例</text>
+
+    <rect x="1086" y="454" width="216" height="76" rx="22" fill="#FFFFFF" stroke="#D2ECE1"/>
+    <text x="1112" y="482" class="node">AG-UI Endpoint</text>
+    <text x="1112" y="506" class="micro">SafeLangGraphAGUIAgent / FastAPI Route</text>
+
+    <rect x="866" y="546" width="204" height="86" rx="22" fill="#FFFFFF" stroke="#D2ECE1"/>
+    <text x="892" y="574" class="node">LangGraph Workflow</text>
+    <text x="892" y="598" class="micro">intent_route → intake → evidence → quality_check</text>
+
+    <rect x="1086" y="546" width="216" height="86" rx="22" fill="#FFFFFF" stroke="#D2ECE1"/>
+    <text x="1112" y="574" class="node">Thread / Graph APIs</text>
+    <text x="1112" y="598" class="micro">thread_routes / graphrag_visual_routes / llm_routes</text>
+  </g>
+
+  <g>
+    <rect x="92" y="690" width="320" height="112" rx="28" fill="#FFFFFF" stroke="#DFE7F7"/>
+    <text x="122" y="728" class="node">前端可见结果</text>
+    <text x="122" y="754" class="bullet">• 最终回答与质量检查结论</text>
+    <text x="122" y="778" class="bullet">• GraphRAG 结果摘要与证据链</text>
+    <text x="122" y="802" class="bullet">• 地图点位、相似案例与历史线程</text>
+  </g>
+
+  <g>
+    <rect x="770" y="690" width="560" height="122" rx="32" fill="#FFFFFF" stroke="#E1E8F6"/>
+    <text x="804" y="727" class="node">Knowledge &amp; Persistence Fabric</text>
+
+    <rect x="804" y="746" width="160" height="44" rx="18" fill="#F5F8FF" stroke="#D7E1F7"/>
+    <text x="824" y="772" class="chip">PROSAIL / LUE 仓库</text>
+
+    <rect x="980" y="746" width="150" height="44" rx="18" fill="#F5FFF8" stroke="#CCEFE0"/>
+    <text x="1002" y="772" class="chip">SQLite 持久化</text>
+
+    <rect x="1146" y="746" width="150" height="44" rx="18" fill="#FFF8F1" stroke="#F6DDC1"/>
+    <text x="1175" y="772" class="chip">外部服务</text>
+
+    <text x="810" y="808" class="micro">论文 PDF / 参数 CSV / 知识图谱索引 / GeoJSON 边界 / 天地图 / LLM API</text>
+  </g>
+
+  <path d="M 356 454 C 384 454, 386 454, 414 454" stroke="#5B67F1" stroke-width="8" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <path d="M 600 644 C 600 664, 604 664, 604 682" stroke="#5B67F1" stroke-width="8" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <path d="M 718 728 C 776 728, 778 728, 838 728" stroke="#5B67F1" stroke-width="8" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <path d="M 1050 658 C 1050 684, 1050 684, 1050 690" stroke="#334155" stroke-width="7" stroke-linecap="round" marker-end="url(#arrowDark)"/>
+  <path d="M 962 690 C 834 690, 764 670, 688 624" stroke="#7C8BFF" stroke-width="5" stroke-linecap="round" stroke-dasharray="10 12" marker-end="url(#arrow)"/>
+  <path d="M 1140 286 C 1140 246, 972 226, 784 236" stroke="#F59E0B" stroke-width="4" stroke-linecap="round" stroke-dasharray="8 10"/>
+  <path d="M 250 608 C 250 660, 310 690, 412 708" stroke="#334155" stroke-width="5" stroke-linecap="round" marker-end="url(#arrowDark)"/>
+
+  <circle cx="392" cy="454" r="8" fill="#5B67F1"/>
+  <circle cx="604" cy="664" r="8" fill="#5B67F1"/>
+  <circle cx="778" cy="728" r="8" fill="#5B67F1"/>
+  <circle cx="1050" cy="682" r="8" fill="#334155"/>
+</svg>
