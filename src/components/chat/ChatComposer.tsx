@@ -6,6 +6,8 @@ interface ChatComposerProps {
   onSend: (message: string) => Promise<void> | void;
   onStop?: () => void;
   placeholder?: string;
+  value?: string;
+  onValueChange?: (value: string) => void;
 }
 
 function autoResize(textarea: HTMLTextAreaElement | null) {
@@ -20,10 +22,21 @@ export const ChatComposer = memo(({
   onSend,
   onStop,
   placeholder = "询问任何问题",
+  value: controlledValue,
+  onValueChange,
 }: ChatComposerProps) => {
-  const [value, setValue] = useState("");
+  const [uncontrolledValue, setUncontrolledValue] = useState("");
   const [isComposing, setIsComposing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const value = controlledValue ?? uncontrolledValue;
+  const setValue = useCallback((next: string) => {
+    if (typeof controlledValue === "string") {
+      onValueChange?.(next);
+      return;
+    }
+    setUncontrolledValue(next);
+    onValueChange?.(next);
+  }, [controlledValue, onValueChange]);
 
   useEffect(() => {
     autoResize(textareaRef.current);
@@ -35,9 +48,13 @@ export const ChatComposer = memo(({
       return;
     }
 
-    setValue("");
-    await onSend(next);
-  }, [disabled, inProgress, onSend, value]);
+    try {
+      await onSend(next);
+      setValue("");
+    } catch (error) {
+      console.error("发送消息失败:", error);
+    }
+  }, [disabled, inProgress, onSend, setValue, value]);
 
   const handleKeyDown = useCallback(
     async (event: React.KeyboardEvent<HTMLTextAreaElement>) => {

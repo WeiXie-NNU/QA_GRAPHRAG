@@ -2,7 +2,6 @@ import React, { useEffect, useCallback, useMemo, useRef, useState } from "react"
 import {
   useCopilotAdditionalInstructions,
   useCopilotChatInternal,
-  useLangGraphInterrupt,
 } from "@copilotkit/react-core";
 import { randomUUID } from "@copilotkit/shared";
 import { AssistantMessage } from "./AssistantMessage";
@@ -14,11 +13,9 @@ import {
 } from "./DefaultChatRenderers";
 import { VirtualizedMessages } from "./VirtualizedMessages";
 import { useThreadHistory } from "./useThreadHistory";
-import { WelcomeScreen } from "./WelcomeScreen";
 import { ModelSelector } from "./ModelSelector";
-import { HITLInterruptCard } from "./HITLInterruptCard";
 import { useAgent } from "../../contexts";
-import { CHAT_INSTRUCTIONS, CHAT_SUGGESTIONS } from "../../lib/consts";
+import { CHAT_INSTRUCTIONS } from "../../lib/consts";
 import type { AgentType } from "../../lib/consts";
 import { saveThreadAgentState } from "../../services/threadService";
 import type { AgentStateSnapshot } from "../../services/threadService";
@@ -29,16 +26,96 @@ interface ChatAreaProps {
   agent: AgentType;
   threadId: string;
   userId: string;
-  onFirstMessage: (message: string) => void;
-  isNewThread: boolean;
+  shouldLoadHistory: boolean;
+}
+
+function hasMessageContent(content: unknown): boolean {
+  if (typeof content === "string") {
+    return content.trim().length > 0;
+  }
+
+  if (!Array.isArray(content)) {
+    return false;
+  }
+
+  return content.some((part) => {
+    if (typeof part === "string") {
+      return part.trim().length > 0;
+    }
+
+    if (!part || typeof part !== "object") {
+      return false;
+    }
+
+    if ((part as any).type === "text") {
+      return String((part as any).text ?? "").trim().length > 0;
+    }
+
+    return true;
+  });
+}
+
+function getHistoryAnchorMessageId(messages: any[]): string | null {
+  for (const message of messages) {
+    if (!message || (message.role !== "user" && message.role !== "assistant")) {
+      continue;
+    }
+
+    if (message.name === "coagent-state-render") {
+      continue;
+    }
+
+    const messageId = String(message.id || "").trim();
+    if (!messageId) {
+      continue;
+    }
+
+    if (!hasMessageContent(message.content) && !message.image) {
+      continue;
+    }
+
+    return messageId;
+  }
+
+  return null;
+}
+
+function countVisibleRestoredMessages(messages: any[]): number {
+  const seenIds = new Set<string>();
+  let count = 0;
+
+  for (const message of messages) {
+    if (!message || (message.role !== "user" && message.role !== "assistant")) {
+      continue;
+    }
+
+    if (message.name === "coagent-state-render") {
+      continue;
+    }
+
+    if (!hasMessageContent(message.content) && !message.image) {
+      continue;
+    }
+
+    const messageId = String(message.id || "").trim();
+    if (messageId) {
+      if (seenIds.has(messageId)) {
+        continue;
+      }
+      seenIds.add(messageId);
+    }
+
+    count += 1;
+  }
+
+  return count;
 }
 
 export const ChatArea: React.FC<ChatAreaProps> = ({
   agent,
   threadId,
   userId,
-  onFirstMessage,
-  isNewThread,
+  shouldLoadHistory,
 }) => {
   const { state: agentState, running } = useAgent();
   useCopilotAdditionalInstructions({ instructions: CHAT_INSTRUCTIONS[agent] }, [agent]);
@@ -50,11 +127,18 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     interrupt,
     agent: connectedAgent,
   } = useCopilotChatInternal({
-    onSubmitMessage: onFirstMessage,
   });
+  const hasPendingInterrupt = Boolean(interrupt);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef<string>("");
-  const virtualizedMessagesPropsRef = useRef<Record<string, unknown>>({});
+  const restoredVisibleMessageCount = useMemo(
+    () => countVisibleRestoredMessages(messages as any[]),
+    [messages],
+  );
+  const historyAnchorMessageId = useMemo(
+    () => getHistoryAnchorMessageId(messages as any[]),
+    [messages],
+  );
   const {
     historyMessages,
     hasOlderHistory,
@@ -65,7 +149,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     threadId,
     agent,
     userId,
-    enabled: !isNewThread,
+    enabled: shouldLoadHistory,
+    anchorBeforeMessageId: historyAnchorMessageId,
+    visibleMessageCount: restoredVisibleMessageCount,
   });
   const [perfObserve, setPerfObserve] = useState<boolean>(() => {
     try {
@@ -83,26 +169,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       } catch {}
       return next;
     });
-  }, []);
-
-  virtualizedMessagesPropsRef.current = {
-    perfEnabled: perfObserve,
-    historyMessages: historyMessages as any,
-    hasOlderHistory,
-    isLoadingOlderHistory: isLoadingOlderHistory || isHistoryLoading,
-    initialMessages: "",
-    interruptElement: interrupt,
-    onLoadOlderHistory: loadOlderHistory,
-    threadKey: threadId,
-  };
-
-  const MessagesWithPerf = useMemo(() => {
-    return (props: any) => (
-      <VirtualizedMessages
-        {...props}
-        {...(virtualizedMessagesPropsRef.current as any)}
-      />
-    );
   }, []);
 
   useEffect(() => {
@@ -128,37 +194,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     };
   }, [agentState, running, threadId]);
-
-  useEffect(() => {
-    if (!isNewThread) return;
-    const timer = setTimeout(() => {
-      const textarea = document.querySelector(".copilotKitInput textarea") as HTMLTextAreaElement | null;
-      textarea?.focus();
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [isNewThread, threadId]);
-
-  useLangGraphInterrupt({
-    render: ({ event, resolve }) => {
-      return <HITLInterruptCard eventValue={event?.value} resolve={resolve as any} />;
-    },
-  }, [threadId]);
-
-  const hasMessages = (messages?.length ?? 0) > 0 || historyMessages.length > 0;
-  const showWelcome = isNewThread && !hasMessages;
-  const suggestions = CHAT_SUGGESTIONS[agent] || [];
-
-  const handleSuggestionClick = useCallback((suggestion: string) => {
-    const textarea = document.querySelector(".copilotKitInput textarea") as HTMLTextAreaElement | null;
-    if (!textarea) return;
-
-    const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
-    if (valueSetter) {
-      valueSetter.call(textarea, suggestion);
-      textarea.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-    textarea.focus();
-  }, []);
 
   const handleSendMessage = useCallback(
     async (content: string) => {
@@ -201,40 +236,29 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
         </div>
       </header>
 
-      <div className={`chat-container ${showWelcome ? "with-welcome" : ""}`}>
-        {showWelcome && (
-          <>
-            <WelcomeScreen visible={true} />
-            {suggestions.length > 0 && (
-              <div className="suggestions-container">
-                <div className="suggestions-grid">
-                  {suggestions.map((suggestion, index) => (
-                    <button key={index} className="suggestion-item" onClick={() => handleSuggestionClick(suggestion)}>
-                      <span className="suggestion-icon">💡</span>
-                      <span className="suggestion-text">{suggestion}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
+      <div className="chat-container">
         <div className="copilotKitChat">
-          <MessagesWithPerf
+          <VirtualizedMessages
             messages={messages as any}
             inProgress={isLoading}
             RenderMessage={DefaultRenderMessage as any}
             AssistantMessage={AssistantMessage as any}
             UserMessage={DefaultUserMessage as any}
             ImageRenderer={DefaultImageRenderer as any}
+            perfEnabled={perfObserve}
+            historyMessages={historyMessages as any}
+            hasOlderHistory={hasOlderHistory}
+            isLoadingOlderHistory={isLoadingOlderHistory || isHistoryLoading}
+            initialMessages=""
+            onLoadOlderHistory={loadOlderHistory}
+            threadKey={threadId}
           />
           <ChatComposer
-            disabled={!connectedAgent}
+            disabled={!connectedAgent || hasPendingInterrupt}
             inProgress={isLoading}
             onSend={handleSendMessage}
             onStop={stopGeneration}
-            placeholder="询问任何问题"
+            placeholder={hasPendingInterrupt ? "请先完成当前人工审核" : "询问任何问题"}
           />
         </div>
       </div>

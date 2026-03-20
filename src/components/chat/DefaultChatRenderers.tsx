@@ -28,13 +28,13 @@ function getUserTextContent(content: UserMessageProps["message"] extends { conte
 }
 
 export const DefaultImageRenderer = ({ content, image }: ImageRendererProps) => (
-  <div className="copilotKitMessage copilotKitUserMessage">
+  <div className="copilotKitImageRendering">
     <img
+      className="copilotKitImageRenderingImage"
       src={`data:image/${image.format};base64,${image.bytes}`}
       alt={content || "uploaded image"}
-      style={{ maxWidth: "100%", borderRadius: 12, display: "block" }}
     />
-    {content ? <div style={{ marginTop: 8 }}>{content}</div> : null}
+    {content ? <div className="copilotKitImageRenderingContent">{content}</div> : null}
   </div>
 );
 
@@ -44,14 +44,18 @@ export const DefaultUserMessage = ({ message, ImageRenderer }: UserMessageProps)
     const content = getUserTextContent(message?.content as any);
     return (
       <div className="copilotKitMessage copilotKitUserMessage">
-        <ImageRenderer image={imageMessage.image} content={content} />
+        <div className="copilotKitUserMessageBubble copilotKitUserMessageBubbleWithImage">
+          <ImageRenderer image={imageMessage.image} content={content} />
+        </div>
       </div>
     );
   }
 
   return (
     <div className="copilotKitMessage copilotKitUserMessage">
-      {getUserTextContent(message?.content as any)}
+      <div className="copilotKitUserMessageBubble">
+        {getUserTextContent(message?.content as any)}
+      </div>
     </div>
   );
 };

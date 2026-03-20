@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import "./IndexPage.css";
 import { CHAT_SUGGESTIONS, CHAT_TITLE, TIANDITU_API_KEY } from "../lib/consts";
 import { loadAdminGeoJson } from "../services/resourceService";
 import { createNewThreadId } from "../services/threadService";
+import { useAuth } from "../contexts";
+import { DEFAULT_LOGIN_SUGGESTIONS } from "../services/authService";
 
 type AdminLevel = "province" | "city" | "county";
 
@@ -291,21 +293,69 @@ function buildSpatialMapHtml(cases: CsvCase[], level: AdminLevel, geoData: any |
 
 export const IndexPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { currentUser, users, login } = useAuth();
   const spatialSectionRef = useRef<HTMLElement | null>(null);
   const [csvCases, setCsvCases] = useState<CsvCase[]>([]);
   const [adminLevel, setAdminLevel] = useState<AdminLevel>("province");
   const [adminGeoData, setAdminGeoData] = useState<any | null>(null);
   const [isAdminGeoLoading, setIsAdminGeoLoading] = useState(true);
   const [shouldLoadSpatial, setShouldLoadSpatial] = useState(false);
+  const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const [loginName, setLoginName] = useState("");
+  const [loginError, setLoginError] = useState("");
 
   const handleEnterSystem = () => {
+    if (!currentUser) {
+      setIsLoginOpen(true);
+      setLoginError("请先登录后再进入系统");
+      return;
+    }
     const newThreadId = createNewThreadId();
-    navigate(`/chat/${newThreadId}`);
+    navigate(`/chat/${newThreadId}`, { state: { isNewThread: true } });
   };
 
   const handleJumpToGithub = () => {
     window.open("https://github.com/WeiXie-NNU/graph-rag-agent", "_blank");
   };
+
+  const loginSuggestions = useMemo(() => {
+    const seen = new Set<string>();
+    const names = [...users.map((user) => user.name), ...DEFAULT_LOGIN_SUGGESTIONS];
+    return names.filter((item) => {
+      const key = item.trim().toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [users]);
+
+  const handleLogin = (value: string) => {
+    const nextName = value.trim();
+    if (!nextName) {
+      setLoginError("请输入用户名");
+      return;
+    }
+
+    try {
+      login(nextName);
+      setLoginName("");
+      setLoginError("");
+      setIsLoginOpen(false);
+      navigate("/", { replace: true });
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "登录失败");
+    }
+  };
+
+  useEffect(() => {
+    const state = location.state as { showLogin?: boolean } | null;
+    if (state?.showLogin) {
+      setIsLoginOpen(true);
+      setLoginError((prev) => prev || "请先登录后再进入对话页面");
+      navigate(location.pathname, { replace: true });
+    }
+  }, [location.pathname, location.state, navigate]);
 
   useEffect(() => {
     if (shouldLoadSpatial) return;
@@ -404,9 +454,21 @@ export const IndexPage: React.FC = () => {
             <a href="#cases">演示问题</a>
             <a href="#stack">技术栈</a>
           </nav>
-          <button className="enter-btn" onClick={handleEnterSystem}>
-            进入系统
-          </button>
+          <div className="header-actions">
+            <button
+              type="button"
+              className={`login-trigger ${currentUser ? "logged-in" : ""}`}
+              onClick={() => {
+                setLoginError("");
+                setIsLoginOpen(true);
+              }}
+            >
+              {currentUser ? `已登录 · ${currentUser.name}` : "用户登录"}
+            </button>
+            <button className="enter-btn" onClick={handleEnterSystem}>
+              进入系统
+            </button>
+          </div>
         </div>
       </header>
 
@@ -615,6 +677,97 @@ export const IndexPage: React.FC = () => {
           </div>
         </section>
       </main>
+
+      {isLoginOpen && (
+        <div className="index-login-overlay" onClick={() => setIsLoginOpen(false)}>
+          <div className="index-login-dialog" onClick={(event) => event.stopPropagation()}>
+            <div className="index-login-copy">
+              <p className="index-login-eyebrow">USER ACCESS</p>
+              <h2>登录后进入对话系统</h2>
+              <p>输入用户名即可登录，同一用户名会自动匹配自己的历史记录。</p>
+            </div>
+
+            <div className="index-login-form">
+              <label htmlFor="index-login-name">用户名</label>
+              <input
+                id="index-login-name"
+                value={loginName}
+                onChange={(event) => {
+                  setLoginName(event.target.value);
+                  if (loginError) setLoginError("");
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    handleLogin(loginName);
+                  }
+                }}
+                placeholder="例如：Demo / Researcher / Alice"
+                autoFocus
+              />
+              {loginError ? <p className="index-login-error">{loginError}</p> : null}
+              <div className="index-login-actions">
+                <button
+                  type="button"
+                  className="index-login-cancel"
+                  onClick={() => setIsLoginOpen(false)}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="index-login-submit"
+                  onClick={() => handleLogin(loginName)}
+                >
+                  登录
+                </button>
+              </div>
+            </div>
+
+            <div className="index-login-section">
+              <p>快捷登录</p>
+              <div className="index-login-chip-list">
+                {loginSuggestions.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    className="index-login-chip"
+                    onClick={() => handleLogin(item)}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {users.length > 0 && (
+              <div className="index-login-section">
+                <p>最近账号</p>
+                <div className="index-login-user-list">
+                  {users.map((user) => (
+                    <button
+                      key={user.id}
+                      type="button"
+                      className="index-login-user"
+                      onClick={() => handleLogin(user.name)}
+                    >
+                      <span
+                        className="index-login-user-avatar"
+                        style={{ backgroundColor: user.avatarColor }}
+                      >
+                        {user.name.slice(0, 1).toUpperCase()}
+                      </span>
+                      <span className="index-login-user-meta">
+                        <strong>{user.name}</strong>
+                        <small>{user.id}</small>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

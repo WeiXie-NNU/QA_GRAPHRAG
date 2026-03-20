@@ -331,6 +331,7 @@ def register_thread_routes(
     async def get_thread_messages(
         thread_id: str,
         before_id: Optional[int] = Query(default=None),
+        before_message_id: Optional[str] = Query(default=None),
         limit: int = Query(default=40, ge=1, le=100),
         agent: Optional[str] = Query(default="test"),
         x_user_id: Optional[str] = Header(default=DEFAULT_USER_ID, alias="X-User-Id"),
@@ -357,6 +358,7 @@ def register_thread_routes(
             get_db_conn(),
             thread_id=thread_id,
             before_id=before_id,
+            before_message_id=before_message_id,
             limit=limit,
         )
         return ThreadMessagesPageResponse(thread_id=thread_id, **page)
@@ -477,73 +479,6 @@ def register_thread_routes(
                 }
                 for item in inventory
             }
-            meta_rows = list(meta_map.values())
-
-            scan_key = f"{current_user_id}:{agent or '__all__'}"
-            now_dt = datetime.now()
-            last_scan = _thread_backfill_last_scan.get(scan_key)
-            should_backfill = not meta_rows
-            if not should_backfill:
-                should_backfill = (
-                    last_scan is None
-                    or (now_dt - last_scan).total_seconds() >= 30
-                )
-
-            if should_backfill and current_user_id == DEFAULT_USER_ID:
-                checkpoint_rows: List[Any] = []
-                async with db_conn.execute(
-                    """
-                    SELECT thread_id, MAX(checkpoint_id) AS latest_checkpoint
-                    FROM checkpoints
-                    WHERE thread_id IS NOT NULL AND thread_id != ''
-                    GROUP BY thread_id
-                    """
-                ) as cursor:
-                    checkpoint_rows = await cursor.fetchall()
-
-                state_rows: List[Any] = []
-                async with db_conn.execute(
-                    "SELECT thread_id, updated_at FROM thread_agent_state"
-                ) as cursor:
-                    state_rows = await cursor.fetchall()
-
-                inferred_ids: Dict[str, str] = {}
-                for tid, latest_checkpoint in checkpoint_rows:
-                    if not tid:
-                        continue
-                    inferred_ids[str(tid)] = str(latest_checkpoint or "")
-                for tid, updated_at in state_rows:
-                    if not tid:
-                        continue
-                    inferred_ids.setdefault(str(tid), str(updated_at or ""))
-
-                missing_ids = [tid for tid in inferred_ids.keys() if tid not in meta_map]
-                if missing_ids:
-                    now = now_dt.isoformat()
-                    for tid in missing_ids:
-                        inferred_updated = inferred_ids.get(tid) or now
-                        inferred_created = inferred_updated if "T" in inferred_updated else now
-                        inferred_agent = agent or "test"
-                        inferred_name = f"历史对话 {tid[:8]}"
-                        await ensure_thread_metadata_row(
-                            db_conn,
-                            thread_id=tid,
-                            agent=inferred_agent,
-                            user_id=current_user_id,
-                            created_at=inferred_created,
-                            updated_at=inferred_updated if "T" in inferred_updated else now,
-                            name=inferred_name,
-                        )
-                        meta_map[tid] = {
-                            "id": tid,
-                            "name": inferred_name,
-                            "createdAt": inferred_created,
-                            "agent": inferred_agent,
-                            "updatedAt": inferred_updated if "T" in inferred_updated else now,
-                            "userId": current_user_id,
-                        }
-                    await db_conn.commit()
-                _thread_backfill_last_scan[scan_key] = now_dt
 
             threads = sorted(
                 meta_map.values(),

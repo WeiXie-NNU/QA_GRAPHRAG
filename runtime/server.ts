@@ -97,6 +97,7 @@ function joinUrl(base: string, path: string): string {
 const AGENT_BASE_URL = normalizeBaseUrl(process.env.AGENT_BASE_URL, "http://127.0.0.1:8090");
 const TEST_AGENT_URL = joinUrl(AGENT_BASE_URL, "/copilotkit/agents/test");
 const COPILOTKIT_RUNTIME_VERSION = "1.53.0";
+const THREAD_RESTORE_MESSAGE_LIMIT = 40;
 
 // 创建 agent 工厂函数 - 每个请求创建新的 agent 实例以支持并发
 // 这确保每个请求都有独立的状态追踪
@@ -143,21 +144,42 @@ app.use('/copilotkit', async (req, res, next) => {
   }
 
   try {
+    const forwardedHeaders: Record<string, string> = {
+      Accept: "application/json",
+    };
+    const forwardedUserId = String(req.header("X-User-Id") || "").trim();
+    if (forwardedUserId) {
+      forwardedHeaders["X-User-Id"] = forwardedUserId;
+    }
+
     const clientStateUrl = joinUrl(
       AGENT_BASE_URL,
       `/threads/${encodeURIComponent(threadId)}/client-state?agent=${encodeURIComponent(agentName)}`,
     );
-    const response = await fetch(clientStateUrl, {
-      headers: { Accept: "application/json" },
-    });
-    if (!response.ok) {
+    const messagesPageUrl = joinUrl(
+      AGENT_BASE_URL,
+      `/threads/${encodeURIComponent(threadId)}/messages?agent=${encodeURIComponent(agentName)}&limit=${THREAD_RESTORE_MESSAGE_LIMIT}`,
+    );
+
+    const [clientStateResponse, messagesResponse] = await Promise.all([
+      fetch(clientStateUrl, { headers: forwardedHeaders }),
+      fetch(messagesPageUrl, { headers: forwardedHeaders }),
+    ]);
+
+    if (!clientStateResponse.ok) {
       return next();
     }
 
-    const payload = await response.json() as {
+    const payload = await clientStateResponse.json() as {
       thread_exists?: boolean;
       agentState?: Record<string, unknown> | null;
     };
+    const messagesPayload = messagesResponse.ok
+      ? await messagesResponse.json() as { messages?: unknown[] }
+      : null;
+    const restoredMessages = Array.isArray(messagesPayload?.messages)
+      ? messagesPayload.messages
+      : [];
 
     res.setHeader("X-CopilotKit-Runtime-Version", COPILOTKIT_RUNTIME_VERSION);
     res.setHeader("Content-Type", "application/json; charset=utf-8");
@@ -167,7 +189,7 @@ app.use('/copilotkit', async (req, res, next) => {
           threadId,
           threadExists: Boolean(payload?.thread_exists),
           state: JSON.stringify(payload?.agentState || {}),
-          messages: "[]",
+          messages: JSON.stringify(restoredMessages),
         },
       },
     });

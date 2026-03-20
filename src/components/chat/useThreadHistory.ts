@@ -1,8 +1,9 @@
-import { useInfiniteQuery } from "@tanstack/react-query";
-import { useEffect, useMemo } from "react";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 
 import type { AgentType } from "../../lib/consts";
 import {
+  getThreadClientState,
   getThreadMessagesPage,
   type ThreadMessagesPage,
   type ThreadPageMessage,
@@ -10,21 +11,14 @@ import {
 
 const INITIAL_HISTORY_PAGE_SIZE = 20;
 const OLDER_HISTORY_PAGE_SIZE = 24;
-const HISTORY_CACHE_PREFIX = "graphrag_thread_history_v1:";
-const HISTORY_CACHE_MAX_MESSAGES = 120;
-const memoryHistoryCache = new Map<string, ThreadHistoryCacheSnapshot>();
-
-interface ThreadHistoryCacheSnapshot {
-  messages: ThreadPageMessage[];
-  hasOlderHistory: boolean;
-  nextBeforeId: number | null;
-}
 
 interface UseThreadHistoryOptions {
   threadId: string;
   agent: AgentType;
   userId: string;
   enabled: boolean;
+  anchorBeforeMessageId?: string | null;
+  visibleMessageCount?: number;
 }
 
 function mergeMessages(pages: ThreadMessagesPage[]): ThreadPageMessage[] {
@@ -44,94 +38,37 @@ function mergeMessages(pages: ThreadMessagesPage[]): ThreadPageMessage[] {
   return merged;
 }
 
-function getHistoryCacheKey(userId: string, threadId: string): string {
-  return `${HISTORY_CACHE_PREFIX}${userId}:${threadId}`;
-}
-
-function readHistoryCache(userId: string, threadId: string): ThreadHistoryCacheSnapshot | null {
-  const cacheKey = getHistoryCacheKey(userId, threadId);
-  const memoryCached = memoryHistoryCache.get(cacheKey);
-  if (memoryCached) {
-    return memoryCached;
-  }
-
-  try {
-    const raw = sessionStorage.getItem(cacheKey);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as ThreadHistoryCacheSnapshot;
-    if (!Array.isArray(parsed?.messages)) return null;
-
-    const snapshot = {
-      messages: parsed.messages,
-      hasOlderHistory: Boolean(parsed.hasOlderHistory),
-      nextBeforeId: parsed.nextBeforeId ?? null,
-    };
-    memoryHistoryCache.set(cacheKey, snapshot);
-    return snapshot;
-  } catch {
-    return null;
-  }
-}
-
-function writeHistoryCache(
-  userId: string,
-  threadId: string,
-  messages: ThreadPageMessage[],
-  hasOlderHistory: boolean,
-  nextBeforeId: number | null,
-): void {
-  try {
-    const capped = messages.slice(-HISTORY_CACHE_MAX_MESSAGES);
-    const effectiveNextBeforeId =
-      capped.length > 0 ? capped[0].rowId ?? nextBeforeId ?? null : nextBeforeId ?? null;
-
-    const payload: ThreadHistoryCacheSnapshot = {
-      messages: capped,
-      hasOlderHistory: hasOlderHistory || capped.length < messages.length,
-      nextBeforeId: effectiveNextBeforeId,
-    };
-
-    const cacheKey = getHistoryCacheKey(userId, threadId);
-    memoryHistoryCache.set(cacheKey, payload);
-    sessionStorage.setItem(cacheKey, JSON.stringify(payload));
-  } catch {}
-}
-
-function makePlaceholderPage(
-  threadId: string,
-  cached: ThreadHistoryCacheSnapshot,
-): ThreadMessagesPage {
-  return {
-    thread_id: threadId,
-    messages: cached.messages,
-    has_more: cached.hasOlderHistory,
-    next_before_id: cached.nextBeforeId,
-    count: cached.messages.length,
-  };
-}
-
 export function useThreadHistory({
   threadId,
   agent,
   userId,
   enabled,
+  anchorBeforeMessageId = null,
+  visibleMessageCount = 0,
 }: UseThreadHistoryOptions) {
-  const cached = useMemo(
-    () => (enabled && threadId && userId ? readHistoryCache(userId, threadId) : null),
-    [enabled, threadId, userId],
-  );
+  const isQueryEnabled = Boolean(enabled && threadId);
+  const clientStateQuery = useQuery({
+    queryKey: ["thread-client-state", userId, agent, threadId],
+    enabled: isQueryEnabled,
+    queryFn: async () => getThreadClientState(threadId, agent),
+    staleTime: 15_000,
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
+  });
 
   const query = useInfiniteQuery({
-    queryKey: ["thread-history", userId, agent, threadId],
-    enabled: enabled && !!threadId,
+    queryKey: ["thread-history", userId, agent, threadId, anchorBeforeMessageId || "latest"],
+    enabled: false,
     initialPageParam: {
       beforeId: null as number | null,
+      beforeMessageId: anchorBeforeMessageId,
       limit: INITIAL_HISTORY_PAGE_SIZE,
     },
     queryFn: async ({ pageParam }) => {
       const page = await getThreadMessagesPage(threadId, {
         agent,
         beforeId: pageParam.beforeId,
+        beforeMessageId: pageParam.beforeMessageId,
         limit: pageParam.limit,
       });
 
@@ -148,19 +85,13 @@ export function useThreadHistory({
 
       return {
         beforeId: lastPage.next_before_id,
+        beforeMessageId: null,
         limit: OLDER_HISTORY_PAGE_SIZE,
       };
     },
     staleTime: 15_000,
-    refetchOnMount: true,
+    refetchOnMount: false,
     refetchOnWindowFocus: false,
-    placeholderData:
-      cached != null
-        ? {
-            pages: [makePlaceholderPage(threadId, cached)],
-            pageParams: [{ beforeId: null, limit: INITIAL_HISTORY_PAGE_SIZE }],
-          }
-        : undefined,
   });
 
   const historyMessages = useMemo(
@@ -168,27 +99,24 @@ export function useThreadHistory({
     [query.data?.pages],
   );
 
-  const hasOlderHistory = Boolean(query.hasNextPage);
-
-  useEffect(() => {
-    if (!threadId || historyMessages.length === 0) return;
-    const latestPage = query.data?.pages?.[query.data.pages.length - 1];
-    writeHistoryCache(
-      userId,
-      threadId,
-      historyMessages,
-      hasOlderHistory,
-      latestPage?.next_before_id ?? null,
-    );
-  }, [hasOlderHistory, historyMessages, query.data?.pages, threadId, userId]);
+  const persistedMessageCount = Number(clientStateQuery.data?.message_count || 0);
+  const hasFetchedAnyHistoryPage = (query.data?.pages.length ?? 0) > 0;
+  const hasOlderHistory = isQueryEnabled && (
+    hasFetchedAnyHistoryPage
+      ? Boolean(query.hasNextPage)
+      : Boolean(anchorBeforeMessageId) && persistedMessageCount > visibleMessageCount
+  );
 
   return {
     historyMessages,
     hasOlderHistory,
-    isHistoryLoading: query.isPending && historyMessages.length === 0,
-    isLoadingOlderHistory: query.isFetchingNextPage,
+    isHistoryLoading: isQueryEnabled && clientStateQuery.isPending && !anchorBeforeMessageId,
+    isLoadingOlderHistory: isQueryEnabled && query.isFetchingNextPage,
     loadOlderHistory: () => {
-      if (!query.hasNextPage || query.isFetchingNextPage) {
+      if (!isQueryEnabled || !anchorBeforeMessageId || query.isFetchingNextPage) {
+        return Promise.resolve();
+      }
+      if (hasFetchedAnyHistoryPage && !query.hasNextPage) {
         return Promise.resolve();
       }
       return query.fetchNextPage().then(() => undefined);

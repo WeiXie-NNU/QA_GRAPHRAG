@@ -14,15 +14,14 @@ const IndexPage = lazy(() =>
 const GraphPage = lazy(() =>
   import('./pages/GraphPage').then((module) => ({ default: module.GraphPage }))
 )
-const LoginPage = lazy(() =>
-  import('./pages/LoginPage').then((module) => ({ default: module.LoginPage }))
+const CaseExtractionPage = lazy(() =>
+  import('./pages/CaseExtractionPage').then((module) => ({ default: module.CaseExtractionPage }))
 )
-
 // 重定向组件：访问 /chat 时自动重定向到 /chat/:threadId
 function ChatRedirect() {
   // 使用 useMemo 确保在 StrictMode 下也只生成一次 ID
   const newThreadId = useMemo(() => createNewThreadId(), []);
-  return <Navigate to={`/chat/${newThreadId}`} replace />;
+  return <Navigate to={`/chat/${newThreadId}`} replace state={{ isNewThread: true }} />;
 }
 
 function RequireAuth({ children }: { children: JSX.Element }) {
@@ -30,22 +29,22 @@ function RequireAuth({ children }: { children: JSX.Element }) {
   const location = useLocation();
 
   if (!currentUser) {
-    return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+    return (
+      <Navigate
+        to="/"
+        replace
+        state={{ from: location.pathname + location.search, showLogin: true }}
+      />
+    );
   }
 
   return children;
 }
 
 function LoginRoute() {
-  const { currentUser } = useAuth();
   const location = useLocation();
   const targetPath = (location.state as { from?: string } | null)?.from || "/";
-
-  if (currentUser) {
-    return <Navigate to={targetPath} replace />;
-  }
-
-  return <LoginPage />;
+  return <Navigate to="/" replace state={{ from: targetPath, showLogin: true }} />;
 }
 
 function AuthSessionSync() {
@@ -67,8 +66,9 @@ createRoot(document.getElementById('root')!).render(
         <Suspense fallback={<div style={{ padding: 24 }}>Loading...</div>}>
           <Routes>
             <Route path="/login" element={<LoginRoute />} />
-            <Route path="/" element={<RequireAuth><IndexPage /></RequireAuth>} />
+            <Route path="/" element={<IndexPage />} />
             <Route path="/graph" element={<RequireAuth><GraphPage /></RequireAuth>} />
+            <Route path="/case-extraction" element={<RequireAuth><CaseExtractionPage /></RequireAuth>} />
             <Route path="/chat" element={<RequireAuth><ChatRedirect /></RequireAuth>} />
             <Route path="/chat/:threadId" element={<RequireAuth><App /></RequireAuth>} />
             <Route path="*" element={<Navigate to="/" replace />} />
