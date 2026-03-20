@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import "./IndexPage.css";
-import { CHAT_SUGGESTIONS, CHAT_TITLE, TIANDITU_API_KEY } from "../lib/consts";
+import { TIANDITU_API_KEY } from "../lib/consts";
 import { loadAdminGeoJson } from "../services/resourceService";
 import { createNewThreadId } from "../services/threadService";
 import { useAuth } from "../contexts";
@@ -24,46 +24,57 @@ interface RegionCount {
 
 const coreModules = [
   {
-    id: "retrieval",
-    title: "混合检索层",
-    summary: "向量召回与知识图谱关系检索并行执行，提升复杂问题命中率。",
-    points: ["向量召回", "实体对齐", "证据聚合"],
+    id: "workbench",
+    title: "案例抽取工具台",
+    summary: "基于案例 CSV、行政区 GeoJSON、地图点位与右侧详情抽屉，形成可直接演示的案例抽取工作台。",
+    points: ["区域点选抽取", "案例参数回看", "论文 PDF 溯源"],
+  },
+  {
+    id: "kg",
+    title: "双知识仓 GraphRAG",
+    summary: "当前代码已支持 PROSAIL 与 LUE 两类知识仓，能够按问题自动识别模型并调用 local/global 检索。",
+    points: ["PROSAIL / LUE", "Local / Global Search", "结果按需回看"],
   },
   {
     id: "reasoning",
-    title: "Agent 推理编排",
-    summary: "使用 LangGraph 工作流拆解任务，按步骤执行、追踪、回溯。",
-    points: ["步骤编排", "状态管理", "可解释链路"],
+    title: "参数迁移推理工作流",
+    summary: "LangGraph 将实体抽取、人工审核、地理补全、证据综合和质量检查串成可解释流程。",
+    points: ["实体抽取 + HITL", "地理上下文补全", "参数建议质检"],
   },
   {
     id: "visual",
-    title: "可视化展示层",
-    summary: "将答案、关系网络和地理线索放到同一界面，便于演示与复核。",
-    points: ["图谱视图", "地图联动", "证据面板"],
-  },
-  {
-    id: "spatial",
-    title: "案例空间分布",
-    summary: "聚合历史案例的地理点位与相似区域，支持按分层查看统计。",
-    points: ["省市县分层", "位置点分布", "案例数量统计"],
+    title: "联动展示与会话管理",
+    summary: "多用户登录、线程隔离、图谱浏览、地图聚焦与右侧详情面板已在当前版本形成一体化展示界面。",
+    points: ["线程历史恢复", "地图/图谱联动", "案例详情抽屉"],
   },
 ];
 
 const demoFlow = [
-  "输入问题并创建线程",
-  "查看 Agent 步骤进度",
-  "打开图谱关系视图",
-  "联动地图查看空间证据",
-  "导出结果用于汇报",
+  "登录并创建独立线程",
+  "输入区域 + 模型 + 参数问题",
+  "人工审核抽取结果并补全上下文",
+  "联动 GraphRAG 与案例抽取工具台",
+  "回看参数范围、地图位置与 PDF 证据",
+];
+
+const featuredScenarios = [
+  "苏州地区农作物 PROSAIL 参数迁移：推荐 Cab、LAI、Cw 区间，并说明证据来源。",
+  "亚热带红树林场景参数迁移：结合相似案例与空间分布，分析 LAI、ALA 的可迁移范围。",
+  "温带落叶林参数配置：对 Cab、Car、Cm、N 进行分项推荐，并回看本体关系与论文来源。",
+  "干旱区稀疏植被反演：评估 hotspot、rsoil0 等参数的迁移适用性与证据充分性。",
+  "LUE 知识仓应用：围绕 LUE_max、FPAR、PAR 等参数进行模型切换后的迁移推理。",
+  "全国案例库预览：按省市县查看 PROSAIL 建模案例分布，并定位高价值区域案例。",
 ];
 
 const stack = [
   "React + TypeScript",
-  "Vite + CopilotKit",
-  "Node Runtime + Express",
-  "FastAPI + LangGraph",
-  "Neo4j + SQLite",
-  "Three.js + Force Graph",
+  "Vite + React Router + React Query",
+  "CopilotKit Runtime + Express",
+  "FastAPI + LangGraph + OpenAI",
+  "SQLite 线程/GraphRAG 存储",
+  "Leaflet + 天地图 + 行政区 GeoJSON",
+  "Force Graph + Three.js",
+  "PROSAIL / LUE Repository Registry",
 ];
 
 function parseCsvLine(line: string): string[] {
@@ -448,11 +459,11 @@ export const IndexPage: React.FC = () => {
         <div className="header-content">
           <a className="logo" href="#intro">GraphRAG Agent</a>
           <nav className="nav-links">
-            <a href="#overview">产品能力</a>
-            <a href="#demo">演示流程</a>
-            <a href="#spatial">空间分布</a>
-            <a href="#cases">演示问题</a>
-            <a href="#stack">技术栈</a>
+            <a href="#overview">系统功能</a>
+            <a href="#demo">亮点功能</a>
+            <a href="#spatial">空间案例</a>
+            <a href="#cases">案例问题</a>
+            <a href="#stack">技术架构</a>
           </nav>
           <div className="header-actions">
             <button
@@ -475,14 +486,15 @@ export const IndexPage: React.FC = () => {
       <main>
         <section id="intro" className="hero-section">
           <div className="hero-content">
-            <p className="hero-kicker">PRODUCT DEMO READY</p>
-            <h1 className="hero-title">GraphRAG 智能问答与推理演示平台</h1>
+            <p className="hero-kicker">REMOTE SENSING PARAMETER TRANSFER</p>
+            <h1 className="hero-title">遥感模型参数迁移推理与案例抽取平台</h1>
             <p className="hero-description">
-              {CHAT_TITLE} 面向产品演示场景，支持从问题输入到证据复核的全流程展示。
-              你可以在一个页面中演示问答、推理步骤、知识图谱和地图线索。
+              当前版本系统已形成“多用户线程问答 + LangGraph 推理编排 + GraphRAG 双检索 +
+              案例抽取工具台 + 地图/图谱联动”的完整链路，重点服务于 PROSAIL、LUE
+              等遥感模型的参数迁移推理、案例回看和证据复核。
             </p>
             <div className="runtime-pill-row">
-              <span>Frontend :3000</span>
+              <span>Frontend :5173</span>
               <span>Runtime :4000</span>
               <span>Agent :8090</span>
             </div>
@@ -496,16 +508,16 @@ export const IndexPage: React.FC = () => {
             </div>
             <div className="hero-metrics">
               <article>
-                <h3>演示友好</h3>
-                <p>单入口展示问答与推理全过程</p>
+                <h3>案例抽取工具台</h3>
+                <p>按区域抽取案例、回看参数表并追溯论文 PDF</p>
               </article>
               <article>
-                <h3>可解释输出</h3>
-                <p>结论 + 证据 + 关系链路同步可见</p>
+                <h3>双知识仓推理</h3>
+                <p>当前版本支持 PROSAIL 与 LUE 知识仓切换与识别</p>
               </article>
               <article>
-                <h3>线程化会话</h3>
-                <p>支持多轮追问与历史状态恢复</p>
+                <h3>线程化审核</h3>
+                <p>支持多轮追问、人工审核和历史状态恢复</p>
               </article>
             </div>
           </div>
@@ -513,8 +525,8 @@ export const IndexPage: React.FC = () => {
 
         <section id="overview" className="content-section overview-section">
           <div className="section-head">
-            <p>产品能力</p>
-            <h2>增强参数推理的四层能力</h2>
+            <p>系统功能</p>
+            <h2>当前版本面向参数迁移推理的四个核心能力</h2>
           </div>
           <div className="module-grid">
             {coreModules.map((module) => (
@@ -533,22 +545,24 @@ export const IndexPage: React.FC = () => {
 
         <section id="demo" className="content-section workflow-section">
           <div className="section-head">
-            <p>演示流程</p>
-            <h2>一条标准 Demo 路径</h2>
+            <p>亮点功能</p>
+            <h2>案例抽取工具台是当前版本最适合演示的亮点能力</h2>
           </div>
           <div className="demo-panel">
             <div className="demo-chat-box">
-              <h3>演示脚本片段</h3>
-              <p className="chat-line user">用户: 请推荐苏州农作物 Cab 与 LAI 参数区间。</p>
-              <p className="chat-line assistant">Agent: 已检索 12 条文献证据，正在进行多步骤参数推理...</p>
-              <p className="chat-line assistant">Agent: 已生成参数建议并关联相似区域案例，点击右侧查看图谱与地图。</p>
+              <h3>工具台如何工作</h3>
+              <p className="chat-line user">用户: 请推荐苏州稻田 PROSAIL 的 Cab、LAI 参数区间，并说明迁移依据。</p>
+              <p className="chat-line assistant">系统: 自动识别地点、模型和参数，必要时进入 HITL 审核面板补全信息。</p>
+              <p className="chat-line assistant">系统: 执行 Local / Global GraphRAG 检索，并在案例抽取工具台中匹配区域案例。</p>
+              <p className="chat-line assistant">系统: 可继续查看案例参数范围、地图位置、相似区域和论文 PDF，支撑迁移推理结论。</p>
             </div>
             <div className="demo-checklist">
-              <h3>演示观察点</h3>
+              <h3>为什么它能支持迁移推理</h3>
               <ul>
-                <li>步骤进度是否实时更新</li>
-                <li>结论是否携带证据来源</li>
-                <li>图谱关系与地理分布是否一致</li>
+                <li>先把“区域、模型、参数”拆出来，减少问题表达不规范带来的误判</li>
+                <li>自动选用 PROSAIL 或 LUE 知识仓，把参数推荐建立在对应模型语义上</li>
+                <li>用区域案例抽取和空间邻近案例为参数迁移提供参照而不是仅靠大模型直答</li>
+                <li>最终可回看 GraphRAG 结果、案例详情、参数表与 PDF 证据，方便专家复核</li>
               </ul>
             </div>
           </div>
@@ -564,8 +578,8 @@ export const IndexPage: React.FC = () => {
 
         <section id="spatial" className="content-section spatial-section" ref={spatialSectionRef}>
           <div className="section-head">
-            <p>空间分布</p>
-            <h2>案例点位地图与省市县分层统计</h2>
+            <p>空间案例</p>
+            <h2>首页当前展示的是 PROSAIL 案例库的全国分布与区域统计预览</h2>
           </div>
 
           <div className="spatial-summary-row">
@@ -598,7 +612,7 @@ export const IndexPage: React.FC = () => {
           <div className="spatial-grid">
             <article className="spatial-card map-preview-card">
               <h3>案例位置点分布地图</h3>
-              <p>使用项目中的省/市/县 GeoJSON 边界，叠加模型案例库参数点位。</p>
+              <p>基于 `resources/repositories/PROSAIL/parameters.csv` 与省市县 GeoJSON 生成，可用于展示案例库覆盖范围与区域热点。</p>
               <div className="spatial-map-wrap">
                 {!shouldLoadSpatial || isAdminGeoLoading || !spatialMapHtml ? (
                   <div className="empty-cell">地图边界数据加载中...</div>
@@ -610,7 +624,7 @@ export const IndexPage: React.FC = () => {
 
             <article className="spatial-card spatial-feature-card">
               <h3>{adminLevel === "province" ? "省级" : adminLevel === "city" ? "市级" : "县级"}案例数量统计</h3>
-              <p>统计维度自动跟随当前地图分层切换。</p>
+              <p>统计维度自动跟随分层切换，可快速识别案例集中区域，为参数迁移筛选相似研究区。</p>
               <div className="spatial-table-wrap">
                 <table className="spatial-table">
                   <thead>
@@ -641,11 +655,11 @@ export const IndexPage: React.FC = () => {
 
         <section id="cases" className="content-section case-section">
           <div className="section-head">
-            <p>演示问题</p>
-            <h2>可直接用于现场演示的话题</h2>
+            <p>案例问题</p>
+            <h2>当前代码可直接支撑的典型问题与案例方向</h2>
           </div>
           <div className="case-grid">
-            {CHAT_SUGGESTIONS.test.slice(0, 4).map((item) => (
+            {featuredScenarios.map((item) => (
               <article key={item} className="case-card">
                 <p>{item}</p>
               </article>
@@ -655,8 +669,8 @@ export const IndexPage: React.FC = () => {
 
         <section id="stack" className="content-section stack-section">
           <div className="section-head">
-            <p>技术栈</p>
-            <h2>前后端协同，支持局域网演示部署</h2>
+            <p>技术架构</p>
+            <h2>当前版本采用前端、Runtime、Agent 与资源仓分层协同</h2>
           </div>
           <div className="stack-list">
             {stack.map((item) => (
@@ -664,14 +678,14 @@ export const IndexPage: React.FC = () => {
             ))}
           </div>
           <div className="final-cta">
-            <h3>现在开始你的产品演示</h3>
-            <p>从首页进入系统即可创建新线程，快速完成一次端到端演示。</p>
+            <h3>系统现状总结</h3>
+            <p>当前版本已经具备案例抽取、参数迁移推理、GraphRAG 结果回看、空间分布预览、知识图谱浏览和多用户线程管理能力，适合直接用于遥感模型问答与汇报演示。</p>
             <div className="hero-actions">
               <button className="btn-primary" onClick={handleEnterSystem}>
-                进入演示
+                进入系统
               </button>
               <button className="btn-secondary" onClick={handleJumpToGithub}>
-                阅读源码
+                查看源码
               </button>
             </div>
           </div>
