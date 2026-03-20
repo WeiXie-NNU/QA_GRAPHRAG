@@ -56,6 +56,7 @@ from test_agent.config import get_llm_model, set_llm_model, get_supported_models
 
 # 导入 GraphRAG 存储服务
 from test_agent.graphrag_storage import get_graphrag_storage, GraphRAGStorage
+from test_agent.graphrag_query import GraphRAGQueryEngine, get_runtime_log_entries
 from test_agent.repository_registry import get_repository, list_repository_statuses
 
 # 导入案例服务
@@ -309,6 +310,21 @@ async def lifespan(app: FastAPI):
             f"available={repo.available}, global={repo.supports_global_search}, "
             f"local={repo.supports_local_search}, reason={repo.status_reason}"
         )
+
+        try:
+            runtime_info = GraphRAGQueryEngine.describe_runtime(repo.model_id)
+            print(
+                "[INFO] KG runtime -> "
+                f"id={repo.model_id}, valid={runtime_info['runtime']['valid']}, "
+                f"warmup_completed={runtime_info['warmup_completed']}, "
+                f"profile={runtime_info['runtime']['profile']}"
+            )
+            if runtime_info["runtime"]["warnings"]:
+                print(f"[INFO] KG runtime warnings ({repo.model_id}): {runtime_info['runtime']['warnings']}")
+            if repo.supports_global_search and runtime_info["runtime"]["valid"]:
+                GraphRAGQueryEngine.preload_cache(repo.model_id, warmup_runtime=True)
+        except Exception as exc:
+            print(f"[INFO] KG runtime check failed ({repo.model_id}): {exc}")
     
     # 获取全局图实例（用于注册端点）
     global_graph = session_manager.get_global_graph()
@@ -436,6 +452,7 @@ def health():
             "supports_global_search": repo.supports_global_search,
             "supports_local_search": repo.supports_local_search,
             "reason": repo.status_reason,
+            "runtime": GraphRAGQueryEngine.describe_runtime(repo.model_id).get("runtime", {}),
         }
         for repo in list_repository_statuses()
     ]
@@ -460,9 +477,9 @@ class GraphRAGResultResponse(BaseModel):
     response: str
     context_data: Optional[Dict[str, Any]] = None
     source_documents: Optional[List[str]] = None
-    relevance_score: float
-    execution_time: float
-    token_usage: int
+    relevance_score: Optional[float] = None
+    execution_time: Optional[float] = None
+    token_usage: Optional[int] = None
     created_at: str
 
 
@@ -535,6 +552,15 @@ async def get_graphrag_result_by_id(result_id: str):
         raise HTTPException(status_code=404, detail=f"未找到结果: {result_id}")
     
     return result
+
+
+@app.get("/api/graphrag/runtime-log/{kg_id}")
+async def get_graphrag_runtime_log(kg_id: str, limit: int = Query(50, ge=1, le=200)):
+    """获取 GraphRAG query 运行时日志（最近 N 条）。"""
+    return {
+        "kg_id": kg_id,
+        "entries": get_runtime_log_entries(kg_id=kg_id, limit=limit),
+    }
 
 
 @app.delete("/api/graphrag/results/{thread_id}")

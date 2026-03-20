@@ -51,8 +51,9 @@ REQUIRED_OUTPUT_FILES = (
     "text_units.parquet",
 )
 
-GLOBAL_SEARCH_REQUIRED_FILES = REQUIRED_OUTPUT_FILES
-LOCAL_SEARCH_REQUIRED_FILES = GLOBAL_SEARCH_REQUIRED_FILES + ("lancedb",)
+QUERY_REQUIRED_FILES = REQUIRED_OUTPUT_FILES + ("community_reports.parquet",)
+GLOBAL_SEARCH_REQUIRED_FILES = QUERY_REQUIRED_FILES
+LOCAL_SEARCH_REQUIRED_FILES = QUERY_REQUIRED_FILES + ("lancedb",)
 
 
 @dataclass(frozen=True)
@@ -173,14 +174,20 @@ def _missing_output_items(output_dir: Path, names: tuple[str, ...]) -> List[str]
 
 def _build_status_reason(
     settings_file: Path,
-    missing_required: List[str],
+    missing_core: List[str],
+    missing_query_required: List[str],
     supports_global_search: bool,
     supports_local_search: bool,
 ) -> str:
     issues: List[str] = []
     if not settings_file.exists():
         issues.append("missing settings.yaml")
-    issues.extend(f"missing {name}" for name in missing_required)
+    issues.extend(f"missing {name}" for name in missing_core)
+    if missing_query_required:
+        issues.append(
+            "official global search disabled: missing "
+            + ", ".join(missing_query_required)
+        )
     if supports_global_search and not supports_local_search:
         issues.append("local search disabled: missing lancedb")
     return ", ".join(issues) if issues else "ready"
@@ -194,10 +201,11 @@ def _build_repository(model_id: str) -> Optional[ModelRepository]:
         return None
 
     layout = _pick_best_layout(model_dir)
-    missing_required = _missing_output_items(layout.output_dir, GLOBAL_SEARCH_REQUIRED_FILES)
-    supports_global_search = layout.settings_file.exists() and not missing_required
+    missing_core = _missing_output_items(layout.output_dir, REQUIRED_OUTPUT_FILES)
+    missing_query_required = _missing_output_items(layout.output_dir, QUERY_REQUIRED_FILES)
+    supports_global_search = layout.settings_file.exists() and not missing_query_required
     supports_local_search = supports_global_search and (layout.output_dir / "lancedb").exists()
-    available = supports_global_search
+    available = layout.settings_file.exists() and not missing_core
 
     return ModelRepository(
         model_id=normalized,
@@ -213,10 +221,11 @@ def _build_repository(model_id: str) -> Optional[ModelRepository]:
         available=available,
         supports_global_search=supports_global_search,
         supports_local_search=supports_local_search,
-        missing_required_files=missing_required,
+        missing_required_files=missing_query_required,
         status_reason=_build_status_reason(
             layout.settings_file,
-            missing_required,
+            missing_core,
+            missing_query_required,
             supports_global_search,
             supports_local_search,
         ),

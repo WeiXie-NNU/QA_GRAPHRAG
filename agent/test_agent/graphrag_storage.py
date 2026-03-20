@@ -16,7 +16,7 @@ import uuid
 import aiosqlite
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 
 
 @dataclass
@@ -29,9 +29,9 @@ class GraphRAGResultRecord:
     response: str               # LLM 生成的回答
     context_data: str           # JSON 序列化的上下文数据
     source_documents: str       # JSON 序列化的来源文档列表
-    relevance_score: float      # 相关性评分 (0-1)
-    execution_time: float       # 执行时间 (秒)
-    token_usage: int            # Token 消耗
+    relevance_score: Optional[float]   # 相关性评分 (0-1)
+    execution_time: Optional[float]    # 执行时间 (秒)
+    token_usage: Optional[int]         # Token 消耗
     created_at: str             # 创建时间 ISO 格式
 
 
@@ -95,9 +95,9 @@ class GraphRAGStorage:
                     response TEXT NOT NULL,
                     context_data TEXT,
                     source_documents TEXT,
-                    relevance_score REAL DEFAULT 0.0,
-                    execution_time REAL DEFAULT 0.0,
-                    token_usage INTEGER DEFAULT 0,
+                    relevance_score REAL,
+                    execution_time REAL,
+                    token_usage INTEGER,
                     created_at TEXT NOT NULL
                 )
             """)
@@ -144,9 +144,9 @@ class GraphRAGStorage:
         response: str,
         context_data: Optional[Dict[str, Any]] = None,
         source_documents: Optional[List[str]] = None,
-        relevance_score: float = 0.0,
-        execution_time: float = 0.0,
-        token_usage: int = 0,
+        relevance_score: Optional[float] = None,
+        execution_time: Optional[float] = None,
+        token_usage: Optional[int] = None,
         conn: Optional[aiosqlite.Connection] = None,
     ) -> str:
         """

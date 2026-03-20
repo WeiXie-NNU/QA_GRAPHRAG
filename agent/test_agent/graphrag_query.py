@@ -5,15 +5,25 @@ GraphRAG 查询模块 - 集成微软 GraphRAG 进行知识图谱查询
 支持多个知识图谱动态切换，数据存储在 resources/repositories/<MODEL>/kg/output 目录下。
 """
 
-import os
 import sys
 import asyncio
+import json
+import re
+import time
+import uuid
 import pandas as pd
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
-from dotenv import dotenv_values, load_dotenv
+from dotenv import load_dotenv
 import yaml
 
+from .graphrag_runtime import (
+    InteractiveQueryProfile,
+    RuntimeValidationResult,
+    build_query_profile,
+    load_runtime_env,
+    validate_runtime_env,
+)
 from .repository_registry import get_repository, normalize_model_id
 
 # 添加 cleanKG 路径以导入元数据管理器
@@ -29,20 +39,6 @@ _root_env_file = _project_root / ".env"
 if _root_env_file.exists():
     load_dotenv(_root_env_file, override=False)
     print(f"[GraphRAG] 已加载项目环境变量: {_root_env_file}")
-
-
-def _read_env_file(file_path: Path) -> Dict[str, str]:
-    if not file_path.exists():
-        return {}
-    try:
-        raw = dotenv_values(file_path)
-    except Exception:
-        return {}
-    env: Dict[str, str] = {}
-    for key, value in raw.items():
-        if key and value is not None:
-            env[str(key)] = str(value)
-    return env
 
 
 def _dedupe_relationships(relationships: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -123,6 +119,46 @@ def _clean_bool(value: Any) -> Optional[bool]:
             return False
     return None
 
+
+def _contains_placeholder(value: Any) -> bool:
+    text = str(value or "")
+    return "${" in text or "$%7B" in text
+
+
+def _truncate_text(text: str, n: int = 200) -> str:
+    value = str(text or "")
+    return value if len(value) <= n else value[:n] + "..."
+
+
+def _extract_query_terms(query: str) -> List[str]:
+    text = str(query or "").strip().lower()
+    if not text:
+        return []
+
+    terms: List[str] = []
+    seen = set()
+
+    def _add(term: str) -> None:
+        cleaned = term.strip().lower()
+        if len(cleaned) < 2:
+            return
+        if cleaned in seen:
+            return
+        seen.add(cleaned)
+        terms.append(cleaned)
+
+    for token in re.findall(r"[a-z0-9_+-]{2,}", text):
+        _add(token)
+
+    for token in re.findall(r"[\u4e00-\u9fff]{2,}", text):
+        _add(token)
+        if len(token) > 4:
+            for size in (2, 3, 4):
+                for idx in range(0, len(token) - size + 1):
+                    _add(token[idx:idx + size])
+
+    return terms[:40]
+
 def get_kg_output_dir(kg_id: str = "prosail") -> Path:
     """获取指定知识图谱的 GraphRAG 输出目录。"""
     normalized = normalize_model_id(kg_id)
@@ -150,6 +186,9 @@ class GraphRAGQueryEngine:
     _shared_configs: Dict[str, Any] = {}  # {kg_id: config}
     _cache_loaded: Dict[str, bool] = {}  # {kg_id: bool}
     _query_cache: Dict[Tuple[Any, ...], Tuple[Any, Any]] = {}
+    _runtime_profiles: Dict[str, InteractiveQueryProfile] = {}
+    _runtime_validations: Dict[str, RuntimeValidationResult] = {}
+    _runtime_warmups: Dict[str, bool] = {}
     _cache_lock = None  # 用于线程安全
     
     @classmethod
@@ -165,7 +204,12 @@ class GraphRAGQueryEngine:
         return any(cls._cache_loaded.values())
     
     @classmethod
-    def preload_cache(cls, kg_id: Optional[str] = None, output_dir: Optional[Path] = None) -> bool:
+    def preload_cache(
+        cls,
+        kg_id: Optional[str] = None,
+        output_dir: Optional[Path] = None,
+        warmup_runtime: bool = True,
+    ) -> bool:
         """
         预加载缓存（可在应用启动时调用）
         
@@ -177,16 +221,21 @@ class GraphRAGQueryEngine:
             是否加载成功
         """
         cache_key = kg_id or "default"
-        if cls._cache_loaded.get(cache_key, False):
+        if cls._cache_loaded.get(cache_key, False) and (
+            not warmup_runtime or cls._runtime_warmups.get(cache_key, False)
+        ):
             print(f"[GraphRAG] 缓存已存在 (kg={cache_key})，跳过预加载")
             return True
             
         try:
             print(f"[GraphRAG] 开始预加载缓存 (kg={cache_key})...")
             engine = cls(kg_id=kg_id, output_dir=output_dir)
+            engine._ensure_runtime_ready()
             # 触发数据加载
             engine._load_parquet_files()
             engine._get_graphrag_config()
+            if warmup_runtime and engine._get_query_profile().warmup_enabled:
+                engine._prewarm_runtime_dependencies()
             print(f"[GraphRAG] 缓存预加载完成 (kg={cache_key})")
             return True
         except Exception as e:
@@ -205,6 +254,9 @@ class GraphRAGQueryEngine:
             cls._shared_dataframes.pop(kg_id, None)
             cls._shared_configs.pop(kg_id, None)
             cls._cache_loaded.pop(kg_id, None)
+            cls._runtime_profiles.pop(kg_id, None)
+            cls._runtime_validations.pop(kg_id, None)
+            cls._runtime_warmups.pop(kg_id, None)
             keys_to_delete = [key for key in cls._query_cache if key and key[0] == kg_id]
             for key in keys_to_delete:
                 cls._query_cache.pop(key, None)
@@ -214,6 +266,9 @@ class GraphRAGQueryEngine:
             cls._shared_configs = {}
             cls._cache_loaded = {}
             cls._query_cache = {}
+            cls._runtime_profiles = {}
+            cls._runtime_validations = {}
+            cls._runtime_warmups = {}
             print("[GraphRAG] 所有缓存已清除")
     
     @classmethod
@@ -236,6 +291,18 @@ class GraphRAGQueryEngine:
             "loaded_kgs": list(cls._cache_loaded.keys()),
             "cache_status": {k: v for k, v in cls._cache_loaded.items()},
             "total_dataframes": sum(len(v) for v in cls._shared_dataframes.values())
+        }
+
+    @classmethod
+    def describe_runtime(cls, kg_id: Optional[str] = None) -> Dict[str, Any]:
+        engine = cls(kg_id=kg_id)
+        return {
+            "kg_id": engine.kg_id,
+            "repository_available": bool(engine.repository and engine.repository.available),
+            "supports_global_search": bool(engine.repository and engine.repository.supports_global_search),
+            "supports_local_search": bool(engine.repository and engine.repository.supports_local_search),
+            "runtime": engine._runtime_validation.to_dict(),
+            "warmup_completed": cls._runtime_warmups.get(engine.kg_id, False),
         }
     
     def __init__(
@@ -268,6 +335,8 @@ class GraphRAGQueryEngine:
         self._initialized = False
         self.metadata_manager = None
         self._runtime_env = self._build_runtime_env()
+        self._runtime_validation = self._build_runtime_validation()
+        self._query_profile = self._runtime_validation.profile
         
         # 初始化元数据管理器（用于论文溯源）
         if metadata_dir:
@@ -297,6 +366,201 @@ class GraphRAGQueryEngine:
             print(f"[GraphRAG] 使用缓存数据 (kg={self.kg_id})，跳过重新加载")
         else:
             print(f"[GraphRAG] 初始化查询引擎 (kg={self.kg_id})，数据目录: {self.output_dir}")
+
+    def _build_runtime_env(self) -> Dict[str, str]:
+        repo_env_file = self.repository.env_file if self.repository else None
+        return load_runtime_env(_root_env_file, repo_env_file)
+
+    def _build_runtime_validation(self) -> RuntimeValidationResult:
+        cached = GraphRAGQueryEngine._runtime_validations.get(self._cache_key)
+        if cached is not None:
+            GraphRAGQueryEngine._runtime_profiles[self._cache_key] = cached.profile
+            return cached
+
+        validation = validate_runtime_env(self._runtime_env)
+        GraphRAGQueryEngine._runtime_validations[self._cache_key] = validation
+        GraphRAGQueryEngine._runtime_profiles[self._cache_key] = validation.profile
+        return validation
+
+    def _get_query_profile(self) -> InteractiveQueryProfile:
+        cached = GraphRAGQueryEngine._runtime_profiles.get(self._cache_key)
+        if cached is not None:
+            return cached
+        profile = build_query_profile(self._runtime_env)
+        GraphRAGQueryEngine._runtime_profiles[self._cache_key] = profile
+        return profile
+
+    def _ensure_runtime_ready(self) -> None:
+        if self._runtime_validation.valid:
+            return
+        raise RuntimeError(
+            f"GraphRAG runtime 配置无效 (kg={self.kg_id}): "
+            + "; ".join(self._runtime_validation.errors)
+        )
+
+    def _prewarm_runtime_dependencies(self) -> None:
+        if GraphRAGQueryEngine._runtime_warmups.get(self._cache_key, False):
+            return
+
+        start = time.perf_counter()
+        try:
+            import graphrag.api as _  # noqa: F401
+            import graphrag.query.factory as _query_factory  # noqa: F401
+            GraphRAGQueryEngine._runtime_warmups[self._cache_key] = True
+            print(
+                f"[GraphRAG] runtime 预热完成 (kg={self.kg_id}, "
+                f"elapsed={time.perf_counter() - start:.2f}s)"
+            )
+        except Exception as exc:
+            print(f"[GraphRAG] runtime 预热失败 (kg={self.kg_id}): {exc}")
+
+    def _build_stage_summary(self, timings: Dict[str, float]) -> str:
+        ordered = []
+        for key in ("prewarm", "load_parquet", "load_config", "execute", "fallback", "total"):
+            value = timings.get(key)
+            if value is None:
+                continue
+            ordered.append(f"{key}={value:.2f}s")
+        return ", ".join(ordered)
+
+    def _runtime_log_file(self) -> Path:
+        logs_dir = self.output_dir.parent / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        return logs_dir / "query_runtime.jsonl"
+
+    def _emit_runtime_log(
+        self,
+        *,
+        query_id: str,
+        search_type: str,
+        stage: str,
+        status: str = "info",
+        query: str = "",
+        elapsed: Optional[float] = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        payload: Dict[str, Any] = {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "kg_id": self.kg_id,
+            "query_id": query_id,
+            "search_type": search_type,
+            "stage": stage,
+            "status": status,
+        }
+        if query:
+            payload["query"] = query
+        if elapsed is not None:
+            payload["elapsed_seconds"] = round(float(elapsed), 4)
+        if extra:
+            payload.update(extra)
+        try:
+            with self._runtime_log_file().open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+        except Exception as exc:
+            print(f"[GraphRAG] 写入 runtime log 失败 (kg={self.kg_id}): {exc}")
+
+    def _augment_context_data(
+        self,
+        context_data: Any,
+        *,
+        search_type: str,
+        timings: Dict[str, float],
+        cached: bool,
+        query_id: Optional[str] = None,
+        trace_source: str = "official",
+        error: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        diagnostics = {
+            "kg_id": self.kg_id,
+            "query_id": query_id,
+            "search_type": search_type,
+            "timings": timings,
+            "cache_hit": cached,
+            "trace_source": trace_source,
+            "warmup_completed": GraphRAGQueryEngine._runtime_warmups.get(self._cache_key, False),
+            "runtime_profile": self._get_query_profile().to_dict(),
+        }
+        if error:
+            diagnostics["error"] = error
+        if isinstance(context_data, dict):
+            normalized = dict(context_data)
+        else:
+            normalized = {"raw_context_data": context_data}
+        normalized["_query_diagnostics"] = diagnostics
+        if error:
+            normalized["official_error"] = error
+        normalized["trace_source"] = trace_source
+        return normalized
+
+    def _decorate_cached_result(
+        self,
+        cached: Tuple[Any, Any],
+        *,
+        search_type: str,
+        query_id: str,
+    ) -> Tuple[str, Dict[str, Any]]:
+        response, context_data = cached
+        diagnostics = {}
+        if isinstance(context_data, dict):
+            diagnostics = dict(context_data.get("_query_diagnostics") or {})
+        timings = diagnostics.get("timings") if isinstance(diagnostics.get("timings"), dict) else {}
+        normalized_context = self._augment_context_data(
+            context_data,
+            search_type=search_type,
+            timings=timings,
+            cached=True,
+            query_id=query_id,
+            trace_source=str(diagnostics.get("trace_source") or "official"),
+            error=diagnostics.get("error"),
+        )
+        return (str(response) if not isinstance(response, str) else response, normalized_context)
+
+    async def _run_fallback_search(
+        self,
+        *,
+        search_type: str,
+        query: str,
+        query_id: Optional[str] = None,
+        official_error: Optional[Exception | str] = None,
+    ) -> Tuple[str, Dict[str, Any]]:
+        resolved_query_id = query_id or str(uuid.uuid4())
+        fallback_start = time.perf_counter()
+        self._emit_runtime_log(
+            query_id=resolved_query_id,
+            search_type=search_type,
+            stage="fallback_start",
+            status="info",
+            query=query,
+            extra={"official_error": str(official_error) if official_error else None},
+        )
+        if search_type == "local":
+            response, context_data = await self._fallback_local_search(query)
+        else:
+            response, context_data = await self._fallback_global_search(query)
+        timings = {
+            "fallback": time.perf_counter() - fallback_start,
+            "total": time.perf_counter() - fallback_start,
+        }
+        error_text = str(official_error) if official_error else None
+        normalized_context = self._augment_context_data(
+            context_data,
+            search_type=search_type,
+            timings=timings,
+            cached=False,
+            query_id=resolved_query_id,
+            trace_source="fallback",
+            error=error_text,
+        )
+        self._emit_runtime_log(
+            query_id=resolved_query_id,
+            search_type=search_type,
+            stage="fallback_success",
+            status="ok",
+            query=query,
+            elapsed=timings["fallback"],
+            extra={"official_error": error_text},
+        )
+        return str(response) if not isinstance(response, str) else response, normalized_context
         
     def _load_parquet_files(self) -> Dict[str, pd.DataFrame]:
         """
@@ -434,6 +698,7 @@ class GraphRAGQueryEngine:
             settings_path = kg_root / "settings.yaml"
             
             if settings_path.exists():
+                self._ensure_runtime_ready()
                 print(f"[GraphRAG] 从配置文件加载 (kg={self.kg_id}): {settings_path}")
                 self._config = load_config(root_dir=kg_root)
                 self._apply_legacy_model_config_compat(
@@ -441,6 +706,7 @@ class GraphRAGQueryEngine:
                     settings_path=settings_path,
                     model_config_cls=ModelConfig,
                 )
+                self._apply_interactive_query_profile(self._config)
                 self._config_error = None
                 # 保存到类级别缓存（按 kg_id）
                 GraphRAGQueryEngine._shared_configs[self._cache_key] = self._config
@@ -462,12 +728,7 @@ class GraphRAGQueryEngine:
     def _get_query_timeout_seconds(self, timeout_seconds: Optional[float]) -> float:
         if timeout_seconds is not None and timeout_seconds > 0:
             return float(timeout_seconds)
-
-        raw = self._runtime_env.get("GRAPHRAG_QUERY_TIMEOUT_SECONDS")
-        parsed = _clean_positive_float(raw)
-        if parsed is not None:
-            return parsed
-        return 120.0
+        return self._get_query_profile().query_timeout_seconds
 
     def _build_query_cache_key(
         self,
@@ -486,29 +747,35 @@ class GraphRAGQueryEngine:
             bool(dynamic_community_selection),
         )
 
-    def _build_runtime_env(self) -> Dict[str, str]:
-        env: Dict[str, str] = {}
-        env.update(_read_env_file(_root_env_file))
-        if self.repository and self.repository.env_file.exists():
-            env.update(_read_env_file(self.repository.env_file))
-        for key in (
-            "GRAPHRAG_API_KEY",
-            "OPENAI_API_KEY",
-            "OPENAI_API_BASE",
-            "AZURE_OPENAI_API_KEY",
-            "AZURE_OPENAI_ENDPOINT",
-        ):
-            value = os.getenv(key)
-            if value:
-                env[key] = value
-        return env
-
     def _runtime_env_get(self, *keys: str) -> Optional[str]:
         for key in keys:
             value = self._runtime_env.get(key)
             if value:
                 return value
         return None
+
+    def _apply_interactive_query_profile(self, config: Any) -> None:
+        from graphrag_llm.config import RetryConfig
+
+        profile = self._get_query_profile()
+        config.concurrent_requests = profile.concurrent_requests
+
+        for collection_name in ("completion_models", "embedding_models"):
+            models = getattr(config, collection_name, {}) or {}
+            if not isinstance(models, dict):
+                continue
+            for model_config in models.values():
+                call_args = dict(getattr(model_config, "call_args", {}) or {})
+                call_args["timeout"] = profile.request_timeout_seconds
+                model_config.call_args = call_args
+                model_config.retry = RetryConfig(
+                    type="exponential_backoff",
+                    max_retries=profile.max_retries,
+                    base_delay=profile.retry_base_delay_seconds,
+                    max_delay=profile.retry_max_delay_seconds,
+                    jitter=True,
+                )
+                model_config.rate_limit = None
 
     def _apply_legacy_model_config_compat(
         self,
@@ -580,8 +847,14 @@ class GraphRAGQueryEngine:
         def _to_model_config(data: Dict[str, Any]) -> Any:
             model_provider = str(data.get("model_provider", "openai") or "openai")
             auth_method = str(data.get("auth_method") or data.get("auth_type") or "api_key")
-            api_key = _clean_optional_string(data.get("api_key", default_api_key) or default_api_key)
-            api_base = _clean_optional_string(data.get("api_base", default_api_base) or default_api_base)
+            raw_api_key = data.get("api_key", default_api_key) or default_api_key
+            raw_api_base = data.get("api_base", default_api_base) or default_api_base
+            if _contains_placeholder(raw_api_key):
+                raw_api_key = default_api_key
+            if _contains_placeholder(raw_api_base):
+                raw_api_base = default_api_base
+            api_key = _clean_optional_string(raw_api_key)
+            api_base = _clean_optional_string(raw_api_base)
 
             if auth_method == "api_key" and not api_key:
                 raise RuntimeError(
@@ -697,12 +970,67 @@ class GraphRAGQueryEngine:
         Returns:
             (响应文本, 上下文数据)
         """
+        timings: Dict[str, float] = {}
+        total_start = time.perf_counter()
+        query_id = str(uuid.uuid4())
+        self._emit_runtime_log(
+            query_id=query_id,
+            search_type="local",
+            stage="start",
+            status="info",
+            query=query,
+            extra={
+                "community_level": community_level,
+                "response_type": response_type,
+                "timeout_seconds": self._get_query_timeout_seconds(timeout_seconds),
+            },
+        )
         try:
+            self._ensure_runtime_ready()
+            if not self.repository or not self.repository.supports_local_search:
+                raise RuntimeError(
+                    f"GraphRAG local search 不可用 (kg={self.kg_id}): "
+                    f"{self.repository.status_reason if self.repository else 'repository not found'}"
+                )
+
+            warmup_start = time.perf_counter()
+            self._prewarm_runtime_dependencies()
+            timings["prewarm"] = time.perf_counter() - warmup_start
+            self._emit_runtime_log(
+                query_id=query_id,
+                search_type="local",
+                stage="prewarm",
+                status="ok",
+                query=query,
+                elapsed=timings["prewarm"],
+            )
+
             import graphrag.api as api
 
-            # 加载数据
+            load_parquet_start = time.perf_counter()
             dfs = self._load_parquet_files()
+            timings["load_parquet"] = time.perf_counter() - load_parquet_start
+            self._emit_runtime_log(
+                query_id=query_id,
+                search_type="local",
+                stage="load_parquet",
+                status="ok",
+                query=query,
+                elapsed=timings["load_parquet"],
+                extra={"rows": {name: len(df) for name, df in dfs.items() if isinstance(df, pd.DataFrame)}},
+            )
+
+            load_config_start = time.perf_counter()
             config = self._get_graphrag_config()
+            timings["load_config"] = time.perf_counter() - load_config_start
+            self._emit_runtime_log(
+                query_id=query_id,
+                search_type="local",
+                stage="load_config",
+                status="ok" if config is not None else "error",
+                query=query,
+                elapsed=timings["load_config"],
+            )
 
             if config is None:
                 raise RuntimeError(
@@ -726,9 +1054,17 @@ class GraphRAGQueryEngine:
             cached = GraphRAGQueryEngine._query_cache.get(cache_key)
             if cached is not None:
                 print(f"[GraphRAG] 命中本地搜索缓存 (kg={self.kg_id})")
-                return cached
+                self._emit_runtime_log(
+                    query_id=query_id,
+                    search_type="local",
+                    stage="cache_hit",
+                    status="ok",
+                    query=query,
+                )
+                return self._decorate_cached_result(cached, search_type="local", query_id=query_id)
 
             query_timeout_seconds = self._get_query_timeout_seconds(timeout_seconds)
+            execute_start = time.perf_counter()
             response, context_data = await asyncio.wait_for(
                 api.local_search(
                     config=config,
@@ -744,12 +1080,28 @@ class GraphRAGQueryEngine:
                 ),
                 timeout=query_timeout_seconds,
             )
+            timings["execute"] = time.perf_counter() - execute_start
+            timings["total"] = time.perf_counter() - total_start
 
             normalized_result = (
                 str(response) if not isinstance(response, str) else response,
-                context_data,
+                self._augment_context_data(
+                    context_data,
+                    search_type="local",
+                    timings=timings,
+                    cached=False,
+                    query_id=query_id,
+                ),
             )
             GraphRAGQueryEngine._query_cache[cache_key] = normalized_result
+            self._emit_runtime_log(
+                query_id=query_id,
+                search_type="local",
+                stage="success",
+                status="ok",
+                query=query,
+                elapsed=timings["total"],
+            )
 
             return normalized_result
 
@@ -758,11 +1110,35 @@ class GraphRAGQueryEngine:
                 "graphrag 库未安装，当前项目只支持基于标准 GraphRAG 产物执行正式 query"
             )
         except asyncio.TimeoutError as e:
+            timings["total"] = time.perf_counter() - total_start
+            self._emit_runtime_log(
+                query_id=query_id,
+                search_type="local",
+                stage="timeout",
+                status="error",
+                query=query,
+                elapsed=timings["total"],
+                extra={"timings": timings},
+            )
             raise RuntimeError(
                 f"GraphRAG local search 超时 (kg={self.kg_id})，"
-                "请检查模型服务可用性或调大 GRAPHRAG_QUERY_TIMEOUT_SECONDS"
+                f"timeout={self._get_query_timeout_seconds(timeout_seconds):.1f}s, "
+                f"stages: {self._build_stage_summary(timings) or 'n/a'}. "
+                "请检查模型服务可用性、API_BASE 配置或降低 query 并发/重试。"
             ) from e
+        except RuntimeError:
+            raise
         except Exception as e:
+            timings["total"] = time.perf_counter() - total_start
+            self._emit_runtime_log(
+                query_id=query_id,
+                search_type="local",
+                stage="error",
+                status="error",
+                query=query,
+                elapsed=timings["total"],
+                extra={"timings": timings, "error": str(e)},
+            )
             print(f"[GraphRAG] 本地搜索失败: {e}")
             import traceback
             traceback.print_exc()
@@ -790,12 +1166,68 @@ class GraphRAGQueryEngine:
         Returns:
             (响应文本, 上下文数据)
         """
+        timings: Dict[str, float] = {}
+        total_start = time.perf_counter()
+        query_id = str(uuid.uuid4())
+        self._emit_runtime_log(
+            query_id=query_id,
+            search_type="global",
+            stage="start",
+            status="info",
+            query=query,
+            extra={
+                "community_level": community_level,
+                "response_type": response_type,
+                "dynamic_community_selection": dynamic_community_selection,
+                "timeout_seconds": self._get_query_timeout_seconds(timeout_seconds),
+            },
+        )
         try:
+            self._ensure_runtime_ready()
+            if not self.repository or not self.repository.supports_global_search:
+                raise RuntimeError(
+                    f"GraphRAG global search 不可用 (kg={self.kg_id}): "
+                    f"{self.repository.status_reason if self.repository else 'repository not found'}"
+                )
+
+            warmup_start = time.perf_counter()
+            self._prewarm_runtime_dependencies()
+            timings["prewarm"] = time.perf_counter() - warmup_start
+            self._emit_runtime_log(
+                query_id=query_id,
+                search_type="global",
+                stage="prewarm",
+                status="ok",
+                query=query,
+                elapsed=timings["prewarm"],
+            )
+
             import graphrag.api as api
 
-            # 加载数据
+            load_parquet_start = time.perf_counter()
             dfs = self._load_parquet_files()
+            timings["load_parquet"] = time.perf_counter() - load_parquet_start
+            self._emit_runtime_log(
+                query_id=query_id,
+                search_type="global",
+                stage="load_parquet",
+                status="ok",
+                query=query,
+                elapsed=timings["load_parquet"],
+                extra={"rows": {name: len(df) for name, df in dfs.items() if isinstance(df, pd.DataFrame)}},
+            )
+
+            load_config_start = time.perf_counter()
             config = self._get_graphrag_config()
+            timings["load_config"] = time.perf_counter() - load_config_start
+            self._emit_runtime_log(
+                query_id=query_id,
+                search_type="global",
+                stage="load_config",
+                status="ok" if config is not None else "error",
+                query=query,
+                elapsed=timings["load_config"],
+            )
 
             if config is None:
                 raise RuntimeError(
@@ -813,9 +1245,17 @@ class GraphRAGQueryEngine:
             cached = GraphRAGQueryEngine._query_cache.get(cache_key)
             if cached is not None:
                 print(f"[GraphRAG] 命中全局搜索缓存 (kg={self.kg_id})")
-                return cached
+                self._emit_runtime_log(
+                    query_id=query_id,
+                    search_type="global",
+                    stage="cache_hit",
+                    status="ok",
+                    query=query,
+                )
+                return self._decorate_cached_result(cached, search_type="global", query_id=query_id)
 
             query_timeout_seconds = self._get_query_timeout_seconds(timeout_seconds)
+            execute_start = time.perf_counter()
             response, context_data = await asyncio.wait_for(
                 api.global_search(
                     config=config,
@@ -829,12 +1269,28 @@ class GraphRAGQueryEngine:
                 ),
                 timeout=query_timeout_seconds,
             )
+            timings["execute"] = time.perf_counter() - execute_start
+            timings["total"] = time.perf_counter() - total_start
 
             normalized_result = (
                 str(response) if not isinstance(response, str) else response,
-                context_data,
+                self._augment_context_data(
+                    context_data,
+                    search_type="global",
+                    timings=timings,
+                    cached=False,
+                    query_id=query_id,
+                ),
             )
             GraphRAGQueryEngine._query_cache[cache_key] = normalized_result
+            self._emit_runtime_log(
+                query_id=query_id,
+                search_type="global",
+                stage="success",
+                status="ok",
+                query=query,
+                elapsed=timings["total"],
+            )
 
             return normalized_result
 
@@ -843,11 +1299,35 @@ class GraphRAGQueryEngine:
                 "graphrag 库未安装，当前项目只支持基于标准 GraphRAG 产物执行正式 query"
             )
         except asyncio.TimeoutError as e:
+            timings["total"] = time.perf_counter() - total_start
+            self._emit_runtime_log(
+                query_id=query_id,
+                search_type="global",
+                stage="timeout",
+                status="error",
+                query=query,
+                elapsed=timings["total"],
+                extra={"timings": timings},
+            )
             raise RuntimeError(
                 f"GraphRAG global search 超时 (kg={self.kg_id})，"
-                "请检查模型服务可用性或调大 GRAPHRAG_QUERY_TIMEOUT_SECONDS"
+                f"timeout={self._get_query_timeout_seconds(timeout_seconds):.1f}s, "
+                f"stages: {self._build_stage_summary(timings) or 'n/a'}. "
+                "请检查模型服务可用性、API_BASE 配置或降低 query 并发/重试。"
             ) from e
+        except RuntimeError:
+            raise
         except Exception as e:
+            timings["total"] = time.perf_counter() - total_start
+            self._emit_runtime_log(
+                query_id=query_id,
+                search_type="global",
+                stage="error",
+                status="error",
+                query=query,
+                elapsed=timings["total"],
+                extra={"timings": timings, "error": str(e)},
+            )
             print(f"[GraphRAG] 全局搜索失败: {e}")
             import traceback
             traceback.print_exc()
@@ -866,18 +1346,23 @@ class GraphRAGQueryEngine:
         matched_entities = []
         
         query_lower = query.lower()
+        query_terms = _extract_query_terms(query)
         for _, entity in entities_df.iterrows():
             name = str(entity.get("name") or "").lower()
             description = str(entity.get("description") or "").lower()
-            if query_lower in name or query_lower in description or any(
-                keyword in name or keyword in description 
-                for keyword in query_lower.split()
-            ):
+            score = 0
+            haystack = f"{name} {description}"
+            if query_lower and query_lower in haystack:
+                score += 5
+            score += sum(1 for keyword in query_terms if keyword in haystack)
+            if score > 0:
                 matched_entities.append({
                     "name": entity.get("name") or "未知",
                     "type": entity.get("type") or "未知类型",
                     "description": entity.get("description") or "",
+                    "match_score": score,
                 })
+        matched_entities.sort(key=lambda item: int(item.get("match_score", 0) or 0), reverse=True)
         
         # 构建响应
         if matched_entities:
@@ -952,13 +1437,17 @@ class GraphRAGQueryEngine:
         matched_reports = []
         
         query_lower = query.lower()
+        query_terms = _extract_query_terms(query)
         for _, report in reports_df.iterrows():
             title = str(report.get("title") or "").lower()
             summary = str(report.get("summary") or "").lower()
             full_content = str(report.get("full_content") or "").lower()
-            
-            if any(keyword in title or keyword in summary or keyword in full_content
-                   for keyword in query_lower.split()):
+            haystack = f"{title} {summary} {full_content}"
+            score = 0
+            if query_lower and query_lower in haystack:
+                score += 5
+            score += sum(1 for keyword in query_terms if keyword in haystack)
+            if score > 0:
                 matched_reports.append({
                     "title": report.get("title") or "未知标题",
                     "summary": report.get("summary") or "",
@@ -967,10 +1456,39 @@ class GraphRAGQueryEngine:
                     "community": report.get("community"),
                     "community_id": report.get("community_id", report.get("community")),
                     "rank": report.get("rank", 0) or 0,
+                    "match_score": score,
                 })
         
         # 按 rank 排序
-        matched_reports.sort(key=lambda x: x.get("rank", 0) or 0, reverse=True)
+        matched_reports.sort(
+            key=lambda x: (
+                int(x.get("match_score", 0) or 0),
+                float(x.get("rank", 0) or 0),
+            ),
+            reverse=True,
+        )
+
+        matched_snippets: List[Dict[str, Any]] = []
+        if not matched_reports:
+            text_units_df = self.get_text_units()
+            for _, text_unit in text_units_df.iterrows():
+                text_content = str(text_unit.get("text", "") or "").strip()
+                lowered = text_content.lower()
+                score = 0
+                if query_lower and query_lower in lowered:
+                    score += 5
+                score += sum(1 for keyword in query_terms if keyword in lowered)
+                if score <= 0:
+                    continue
+                matched_snippets.append(
+                    {
+                        "id": text_unit.get("id"),
+                        "text": text_content,
+                        "document_ids": text_unit.get("document_ids", []),
+                        "match_score": score,
+                    }
+                )
+            matched_snippets.sort(key=lambda item: int(item.get("match_score", 0) or 0), reverse=True)
         
         # 构建响应
         if matched_reports:
@@ -979,6 +1497,10 @@ class GraphRAGQueryEngine:
                 response += f"### {report['title']}\n\n"
                 if report['summary']:
                     response += f"{report['summary']}\n\n"
+        elif matched_snippets:
+            response = "基于命中文本片段的证据摘要:\n\n"
+            for snippet in matched_snippets[:5]:
+                response += f"- {_truncate_text(str(snippet.get('text', '') or ''), 220)}\n"
         else:
             response = "未找到与查询相关的社区报告。"
         
@@ -998,6 +1520,11 @@ class GraphRAGQueryEngine:
                                 doc_ids = matching_tu.iloc[0].get("document_ids", [])
                                 if isinstance(doc_ids, list):
                                     source_documents.extend(doc_ids)
+        elif matched_snippets:
+            for snippet in matched_snippets[:10]:
+                doc_ids = snippet.get("document_ids", [])
+                if isinstance(doc_ids, list):
+                    source_documents.extend(doc_ids)
         source_documents = list(set(source_documents))  # 去重
         
         # 获取论文元数据
@@ -1020,6 +1547,7 @@ class GraphRAGQueryEngine:
             "reports": matched_reports,
             "communities": matched_reports,
             "matched_reports": matched_reports,
+            "matched_snippets": matched_snippets[:10],
             "source_documents": source_documents,
             "paper_sources": paper_sources,  # 新增：论文来源元数据
             "total_reports": len(reports_df),
@@ -1128,6 +1656,27 @@ def get_graphrag_engine() -> GraphRAGQueryEngine:
     return _graphrag_engine
 
 
+def get_runtime_log_entries(kg_id: str = "prosail", limit: int = 50) -> List[Dict[str, Any]]:
+    engine = GraphRAGQueryEngine(kg_id=kg_id)
+    log_file = engine._runtime_log_file()
+    if not log_file.exists():
+        return []
+    entries: List[Dict[str, Any]] = []
+    try:
+        with log_file.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    entries.append(json.loads(text))
+                except Exception:
+                    entries.append({"raw": text})
+    except Exception:
+        return []
+    return entries[-max(1, int(limit)):]
+
+
 async def local_search(query: str, kg_id: str = "prosail", **kwargs) -> Tuple[str, Dict[str, Any]]:
     """
     执行本地搜索（便捷函数）
@@ -1148,12 +1697,39 @@ async def local_search(query: str, kg_id: str = "prosail", **kwargs) -> Tuple[st
         return f"知识图谱 '{kg_id}' 不可用", {"error": str(e), "kg_id": kg_id}
     except RuntimeError as e:
         print(f"[GraphRAG] Local Search 无法执行 (kg={kg_id}): {e}")
-        return f"Local Search 无法执行: {e}", {"error": str(e), "kg_id": kg_id}
+        try:
+            fallback_engine = GraphRAGQueryEngine(kg_id=kg_id)
+            return await fallback_engine._run_fallback_search(
+                search_type="local",
+                query=query,
+                official_error=e,
+            )
+        except Exception as fallback_exc:
+            return (
+                f"Local Search 无法执行: {e}",
+                {
+                    "error": str(e),
+                    "fallback_error": str(fallback_exc),
+                    "kg_id": kg_id,
+                    "runtime": GraphRAGQueryEngine.describe_runtime(kg_id).get("runtime", {}),
+                },
+            )
     except Exception as e:
         print(f"[GraphRAG] Local Search 失败 (kg={kg_id}): {e}")
-        import traceback
-        traceback.print_exc()
-        return f"Local Search 执行出错: {e}", {"error": str(e), "kg_id": kg_id}
+        try:
+            fallback_engine = GraphRAGQueryEngine(kg_id=kg_id)
+            return await fallback_engine._run_fallback_search(
+                search_type="local",
+                query=query,
+                official_error=e,
+            )
+        except Exception as fallback_exc:
+            import traceback
+            traceback.print_exc()
+            return (
+                f"Local Search 执行出错: {e}",
+                {"error": str(e), "fallback_error": str(fallback_exc), "kg_id": kg_id},
+            )
 
 
 async def global_search(query: str, kg_id: str = "prosail", **kwargs) -> Tuple[str, Dict[str, Any]]:
@@ -1176,12 +1752,39 @@ async def global_search(query: str, kg_id: str = "prosail", **kwargs) -> Tuple[s
         return f"知识图谱 '{kg_id}' 不可用", {"error": str(e), "kg_id": kg_id}
     except RuntimeError as e:
         print(f"[GraphRAG] Global Search 无法执行 (kg={kg_id}): {e}")
-        return f"Global Search 无法执行: {e}", {"error": str(e), "kg_id": kg_id}
+        try:
+            fallback_engine = GraphRAGQueryEngine(kg_id=kg_id)
+            return await fallback_engine._run_fallback_search(
+                search_type="global",
+                query=query,
+                official_error=e,
+            )
+        except Exception as fallback_exc:
+            return (
+                f"Global Search 无法执行: {e}",
+                {
+                    "error": str(e),
+                    "fallback_error": str(fallback_exc),
+                    "kg_id": kg_id,
+                    "runtime": GraphRAGQueryEngine.describe_runtime(kg_id).get("runtime", {}),
+                },
+            )
     except Exception as e:
         print(f"[GraphRAG] Global Search 失败 (kg={kg_id}): {e}")
-        import traceback
-        traceback.print_exc()
-        return f"Global Search 执行出错: {e}", {"error": str(e), "kg_id": kg_id}
+        try:
+            fallback_engine = GraphRAGQueryEngine(kg_id=kg_id)
+            return await fallback_engine._run_fallback_search(
+                search_type="global",
+                query=query,
+                official_error=e,
+            )
+        except Exception as fallback_exc:
+            import traceback
+            traceback.print_exc()
+            return (
+                f"Global Search 执行出错: {e}",
+                {"error": str(e), "fallback_error": str(fallback_exc), "kg_id": kg_id},
+            )
 
 
 # 测试代码

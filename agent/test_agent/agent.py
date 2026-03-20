@@ -31,6 +31,8 @@ from thread_message_store import append_thread_turn
 
 DEFAULT_KG_ID = "prosail"
 MAX_TOOL_CONTENT_LEN = 4000
+MAX_LLM_HISTORY_MESSAGES = 6
+MAX_LLM_HISTORY_CHARS = 12000
 MAX_HITL_RETRY = 3
 SUPPORTED_KG_IDS = ("prosail", "lue")
 
@@ -143,6 +145,72 @@ def _safe_json_loads(text: str) -> Dict[str, Any]:
 
 def _truncate(text: str, n: int = MAX_TOOL_CONTENT_LEN) -> str:
     return text if len(text) <= n else text[:n] + "..."
+
+
+def _clean_message_text(text: Any, limit: int = 2000) -> str:
+    if isinstance(text, list):
+        text = json.dumps(text, ensure_ascii=False)
+    value = str(text or "")
+    value = _strip_agent_state_marker(value)
+    value = _strip_agent_data_marker(value)
+    return _truncate(value, limit)
+
+
+def _compact_messages_for_llm(
+    messages: List[Any],
+    *,
+    max_messages: int = MAX_LLM_HISTORY_MESSAGES,
+    max_chars: int = MAX_LLM_HISTORY_CHARS,
+    include_tool_messages: bool = False,
+) -> List[Any]:
+    if not messages:
+        return []
+
+    latest_human_idx = None
+    for idx in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[idx], HumanMessage):
+            latest_human_idx = idx
+            break
+
+    selected: List[Any] = []
+    total_chars = 0
+
+    if latest_human_idx is not None:
+        window_start = max(0, latest_human_idx - (max_messages - 1))
+        candidate_messages = messages[window_start : latest_human_idx + 1]
+    else:
+        candidate_messages = messages[-max_messages:]
+
+    for msg in candidate_messages:
+        if isinstance(msg, ToolMessage) and not include_tool_messages:
+            continue
+        if isinstance(msg, SystemMessage):
+            continue
+        content = _clean_message_text(getattr(msg, "content", ""), 2000 if not isinstance(msg, ToolMessage) else 1200)
+        if not content.strip():
+            continue
+        if total_chars + len(content) > max_chars and selected:
+            continue
+        total_chars += len(content)
+        if isinstance(msg, HumanMessage):
+            selected.append(HumanMessage(content=content))
+        elif isinstance(msg, AIMessage):
+            selected.append(AIMessage(content=content))
+        elif isinstance(msg, ToolMessage) and include_tool_messages:
+            selected.append(ToolMessage(content=content, tool_call_id=msg.tool_call_id, name=msg.name))
+
+    if latest_human_idx is not None:
+        latest_human = messages[latest_human_idx]
+        latest_text = _clean_message_text(getattr(latest_human, "content", ""), 4000)
+        if not selected or not isinstance(selected[-1], HumanMessage) or selected[-1].content != latest_text:
+            selected.append(HumanMessage(content=latest_text))
+
+    return selected[-max_messages:]
+
+
+def _is_context_length_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "context_length_exceeded" in text or "maximum context length" in text
 
 
 def _build_agent_state_marker(state: Dict[str, Any]) -> str:
@@ -419,10 +487,173 @@ def _build_graphrag_result_summary(
         "search_type": search_type,
         "query": str(result.get("query", "") or ""),
         "response": str(result.get("response", "") or ""),
-        "relevance_score": float(result.get("relevance_score", 0.0) or 0.0),
-        "execution_time": float(result.get("execution_time", 0.0) or 0.0),
+        "relevance_score": float(result["relevance_score"]) if result.get("relevance_score") is not None else None,
+        "execution_time": float(result["execution_time"]) if result.get("execution_time") is not None else None,
+        "trace_source": str(result.get("trace_source", "") or ""),
         "result_id": result_id,
     }
+
+
+def _extract_query_diagnostics(result: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(result, dict):
+        return {}
+    context = result.get("context_data")
+    if not isinstance(context, dict):
+        return {}
+    diagnostics = context.get("_query_diagnostics")
+    return diagnostics if isinstance(diagnostics, dict) else {}
+
+
+def _extract_trace_source(result: Optional[Dict[str, Any]]) -> str:
+    diagnostics = _extract_query_diagnostics(result)
+    source = diagnostics.get("trace_source")
+    if isinstance(source, str) and source.strip():
+        return source.strip()
+    direct = result.get("trace_source") if isinstance(result, dict) else None
+    return str(direct or "official")
+
+
+def _response_looks_unhelpful(text: str) -> bool:
+    lowered = (text or "").strip().lower()
+    if not lowered:
+        return True
+    bad_markers = (
+        "unable to answer",
+        "i am sorry",
+        "无法执行",
+        "执行出错",
+        "未找到",
+        "证据不足",
+    )
+    return any(marker in lowered for marker in bad_markers)
+
+
+def _collect_evidence_highlights(result: Optional[Dict[str, Any]]) -> List[str]:
+    if not isinstance(result, dict):
+        return []
+    context = result.get("context_data") if isinstance(result.get("context_data"), dict) else {}
+    highlights: List[str] = []
+
+    entities = context.get("matched_entities") or context.get("entities") or []
+    if isinstance(entities, list):
+        for entity in entities[:3]:
+            if not isinstance(entity, dict):
+                continue
+            name = str(entity.get("name", "") or "").strip()
+            desc = str(entity.get("description", "") or "").strip()
+            if name:
+                piece = f"实体 {name}"
+                if desc:
+                    piece += f": {_truncate(desc, 120)}"
+                highlights.append(piece)
+
+    reports = context.get("matched_reports") or context.get("reports") or context.get("communities") or []
+    if isinstance(reports, list):
+        for report in reports[:3]:
+            if not isinstance(report, dict):
+                continue
+            title = str(report.get("title", "") or "").strip()
+            summary = str(report.get("summary", "") or report.get("full_content", "") or "").strip()
+            if title:
+                piece = f"主题 {title}"
+                if summary:
+                    piece += f": {_truncate(summary, 140)}"
+                highlights.append(piece)
+
+    snippets = context.get("matched_snippets") or []
+    if isinstance(snippets, list):
+        for snippet in snippets[:3]:
+            if not isinstance(snippet, dict):
+                continue
+            text = str(snippet.get("text", "") or "").strip()
+            if text:
+                highlights.append(f"片段: {_truncate(text, 160)}")
+
+    response = str(result.get("response", "") or "").strip()
+    if response and not _response_looks_unhelpful(response):
+        highlights.append(f"回答摘录: {_truncate(response, 180)}")
+
+    source_documents = result.get("source_documents")
+    if isinstance(source_documents, list) and source_documents:
+        doc_line = ", ".join(str(item) for item in source_documents[:3] if str(item).strip())
+        if doc_line:
+            highlights.append(f"来源文档: {doc_line}")
+
+    deduped: List[str] = []
+    seen = set()
+    for item in highlights:
+        if item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+    return deduped[:5]
+
+
+def _compact_rag_result_for_prompt(result: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    if not isinstance(result, dict):
+        return {}
+    compact: Dict[str, Any] = {
+        "search_type": result.get("search_type"),
+        "kg_id": result.get("kg_id"),
+        "query": _truncate(str(result.get("query", "") or ""), 200),
+        "response": _truncate(str(result.get("response", "") or ""), 600),
+        "source_documents": (result.get("source_documents") or [])[:5] if isinstance(result.get("source_documents"), list) else [],
+        "trace_source": _extract_trace_source(result),
+        "diagnostics": _extract_query_diagnostics(result),
+        "highlights": _collect_evidence_highlights(result),
+    }
+    return compact
+
+
+def _build_fallback_synthesis(
+    *,
+    query: str,
+    kg_id: str,
+    entities: Dict[str, Any],
+    local_result: Optional[Dict[str, Any]],
+    global_result: Optional[Dict[str, Any]],
+) -> tuple[List[Dict[str, Any]], str]:
+    allowed_params = _available_params_for_kg(kg_id)
+    requested = entities.get("parameters") if isinstance(entities.get("parameters"), list) else []
+    requested = [p for p in requested if p in allowed_params]
+    if not requested:
+        requested = list(DEFAULT_PARAMS_BY_KG.get(kg_id, []))
+
+    local_source = _extract_trace_source(local_result) if local_result else "none"
+    global_source = _extract_trace_source(global_result) if global_result else "none"
+    local_highlights = _collect_evidence_highlights(local_result)
+    global_highlights = _collect_evidence_highlights(global_result)
+    combined = local_highlights + [item for item in global_highlights if item not in local_highlights]
+
+    recommendations: List[Dict[str, Any]] = []
+    for param in requested:
+        reason_parts: List[str] = []
+        if combined:
+            reason_parts.append(f"已命中证据材料: {'；'.join(combined[:2])}")
+        if local_result:
+            reason_parts.append(f"local={local_source}")
+        if global_result:
+            reason_parts.append(f"global={global_source}")
+        if not reason_parts:
+            reason_parts.append("暂无可直接支撑参数定值的证据")
+        recommendations.append(
+            {
+                "parameter": param,
+                "value": "N/A",
+                "unit": _expected_unit_for_param(kg_id, param),
+                "reason": "；".join(reason_parts),
+                "evidence_ids": [],
+            }
+        )
+
+    summary_parts = [f"针对问题“{query}”，系统已根据 GraphRAG 命中的材料生成保底总结。"]
+    if combined:
+        summary_parts.append("关键证据: " + "；".join(combined[:3]))
+    if local_result or global_result:
+        summary_parts.append(f"证据来源模式: local={local_source}, global={global_source}")
+    if not combined:
+        summary_parts.append("当前没有足够的结构化命中材料，建议继续补充图谱或缩小问题范围。")
+    return recommendations, " ".join(summary_parts)
 
 
 async def _persist_latest_graphrag_results(
@@ -452,9 +683,9 @@ async def _persist_latest_graphrag_results(
                 response=str(result.get("response", "") or ""),
                 context_data=result.get("context_data") if isinstance(result.get("context_data"), dict) else {},
                 source_documents=result.get("source_documents") if isinstance(result.get("source_documents"), list) else [],
-                relevance_score=float(result.get("relevance_score", 0.0) or 0.0),
-                execution_time=float(result.get("execution_time", 0.0) or 0.0),
-                token_usage=int(result.get("token_usage", 0) or 0),
+                relevance_score=float(result["relevance_score"]) if result.get("relevance_score") is not None else None,
+                execution_time=float(result["execution_time"]) if result.get("execution_time") is not None else None,
+                token_usage=int(result["token_usage"]) if result.get("token_usage") is not None else None,
             )
         except Exception as exc:
             print(f"[AGENT:{_get_session_id(config)}] save {key} graphrag result failed: {exc}")
@@ -618,8 +849,8 @@ async def _graphrag_local_search_async(
                 "context_data": {},
                 "source_documents": [],
                 "execution_time": 0.0,
-                "token_usage": 0,
-                "relevance_score": 0.0,
+                "token_usage": None,
+                "relevance_score": None,
             },
             ensure_ascii=False,
         )
@@ -634,8 +865,9 @@ async def _graphrag_local_search_async(
         "context_data": context_data if isinstance(context_data, dict) else {"raw": str(context_data)},
         "source_documents": (context_data or {}).get("source_documents", []) if isinstance(context_data, dict) else [],
         "execution_time": (datetime.now() - start).total_seconds(),
-        "token_usage": max(1, len(text) // 4),
-        "relevance_score": 0.8 if text else 0.0,
+        "token_usage": None,
+        "relevance_score": None,
+        "trace_source": str((context_data or {}).get("trace_source", "official")) if isinstance(context_data, dict) else "official",
     }
     return json.dumps(result, ensure_ascii=False)
 
@@ -657,8 +889,8 @@ async def _graphrag_global_search_async(
                 "context_data": {},
                 "source_documents": [],
                 "execution_time": 0.0,
-                "token_usage": 0,
-                "relevance_score": 0.0,
+                "token_usage": None,
+                "relevance_score": None,
             },
             ensure_ascii=False,
         )
@@ -673,8 +905,9 @@ async def _graphrag_global_search_async(
         "context_data": context_data if isinstance(context_data, dict) else {"raw": str(context_data)},
         "source_documents": (context_data or {}).get("source_documents", []) if isinstance(context_data, dict) else [],
         "execution_time": (datetime.now() - start).total_seconds(),
-        "token_usage": max(1, len(text) // 4),
-        "relevance_score": 0.75 if text else 0.0,
+        "token_usage": None,
+        "relevance_score": None,
+        "trace_source": str((context_data or {}).get("trace_source", "official")) if isinstance(context_data, dict) else "official",
     }
     return json.dumps(result, ensure_ascii=False)
 
@@ -921,11 +1154,15 @@ async def general_qa_agent_node(state: TestAgentState, config: RunnableConfig) -
 - 调用 graphrag_local_search / graphrag_global_search 时，必须传 query（使用用户原问题或其等价改写），不要空参数调用。
 - 优先 local，再按需 global。
 - 最终回答保持简洁并指出证据来源。"""
-    resp = await _ainvoke_with_stream_fallback(
-        bound,
-        [SystemMessage(content=system_prompt)] + state.get("messages", []),
-        config,
-    )
+    compact_messages = _compact_messages_for_llm(state.get("messages", []), include_tool_messages=False)
+    llm_messages = [SystemMessage(content=system_prompt)] + compact_messages
+    try:
+        resp = await _ainvoke_with_stream_fallback(bound, llm_messages, config)
+    except Exception as exc:
+        if not _is_context_length_error(exc):
+            raise
+        minimal_messages = [SystemMessage(content=system_prompt), HumanMessage(content=query)]
+        resp = await _ainvoke_with_stream_fallback(bound, minimal_messages, config)
     # 当本轮已产出最终回答（无 tool_calls）时，先把步骤推进到“回答中”，
     # finalize 再把同一条消息收敛为 completed，形成渐进式渲染。
     if not getattr(resp, "tool_calls", None):
@@ -1315,12 +1552,15 @@ async def gather_evidence_agent_node(state: TestAgentState, config: RunnableConf
 - 最多调用 2 次工具。
 - 调用 graphrag_local_search / graphrag_global_search 时必须传 query，值用用户问题或提炼后的等价查询。
 - 证据足够时直接给出简短结论。"""
-
-    resp = await _ainvoke_with_stream_fallback(
-        bound,
-        [SystemMessage(content=system_prompt)] + state.get("messages", []),
-        config,
-    )
+    compact_messages = _compact_messages_for_llm(state.get("messages", []), include_tool_messages=False)
+    llm_messages = [SystemMessage(content=system_prompt)] + compact_messages
+    try:
+        resp = await _ainvoke_with_stream_fallback(bound, llm_messages, config)
+    except Exception as exc:
+        if not _is_context_length_error(exc):
+            raise
+        minimal_messages = [SystemMessage(content=system_prompt), HumanMessage(content=query)]
+        resp = await _ainvoke_with_stream_fallback(bound, minimal_messages, config)
     return {"messages": [resp], "steps": steps}
 
 
@@ -1339,6 +1579,8 @@ async def synthesize_node(state: TestAgentState, config: RunnableConfig) -> Dict
     kg_id = _resolve_kg_for_state(state, query)
     model_name = _model_name_for_kg(kg_id)
     allowed_params = _available_params_for_kg(kg_id)
+    compact_local_result = _compact_rag_result_for_prompt(local_result)
+    compact_global_result = _compact_rag_result_for_prompt(global_result)
     sample_param = (entities.get("parameters") or [None])[0] if isinstance(entities.get("parameters"), list) else None
     if not isinstance(sample_param, str) or sample_param not in allowed_params:
         sample_param = DEFAULT_PARAMS_BY_KG.get(kg_id, ["param"])[0]
@@ -1351,8 +1593,8 @@ async def synthesize_node(state: TestAgentState, config: RunnableConfig) -> Dict
 模型: {model_name} (kg_id={kg_id})
 仅可推荐参数: {', '.join(allowed_params)}
 实体: {json.dumps(entities, ensure_ascii=False)}
-Local Search: {json.dumps(local_result or {}, ensure_ascii=False)}
-Global Search: {json.dumps(global_result or {}, ensure_ascii=False)}
+Local Search: {json.dumps(compact_local_result, ensure_ascii=False)}
+Global Search: {json.dumps(compact_global_result, ensure_ascii=False)}
 输出 JSON:
 {{
   \"recommendations\": [{{\"parameter\":\"{sample_param}\",\"value\":\"...\",\"unit\":\"{sample_unit}\",\"reason\":\"...\",\"evidence_ids\":[]}}],
@@ -1374,6 +1616,26 @@ Global Search: {json.dumps(global_result or {}, ensure_ascii=False)}
         rec for rec in recommendations
         if isinstance(rec, dict) and str(rec.get("parameter", "")) in set(allowed_params)
     ]
+
+    needs_fallback_synthesis = (
+        not recommendations
+        or not summary.strip()
+        or _extract_trace_source(local_result) == "fallback"
+        or _extract_trace_source(global_result) == "fallback"
+    )
+
+    if needs_fallback_synthesis:
+        fallback_recommendations, fallback_summary = _build_fallback_synthesis(
+            query=query,
+            kg_id=kg_id,
+            entities=entities,
+            local_result=local_result,
+            global_result=global_result,
+        )
+        if fallback_recommendations:
+            recommendations = fallback_recommendations
+        if fallback_summary:
+            summary = fallback_summary
 
     if not recommendations:
         fallback_params = entities.get("parameters") if isinstance(entities.get("parameters"), list) else []
