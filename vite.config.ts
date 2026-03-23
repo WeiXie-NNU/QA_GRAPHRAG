@@ -155,6 +155,15 @@ function serveResources(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [geojsonPlugin(), react(), serveKgData(), serveResources()],
+  resolve: {
+    alias: {
+      react: resolve(ROOT_DIR, 'node_modules/react'),
+      'react-dom': resolve(ROOT_DIR, 'node_modules/react-dom'),
+      'react/jsx-runtime': resolve(ROOT_DIR, 'node_modules/react/jsx-runtime.js'),
+      'react/jsx-dev-runtime': resolve(ROOT_DIR, 'node_modules/react/jsx-dev-runtime.js'),
+    },
+    dedupe: ['react', 'react-dom'],
+  },
   build: {
     rollupOptions: {
       output: {

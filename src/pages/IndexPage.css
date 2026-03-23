@@ -1055,6 +1055,431 @@
   font-size: 0.92rem;
 }
 
+.agent-logic-board {
+  position: relative;
+  margin-top: 18px;
+  overflow: hidden;
+  border-radius: 28px;
+  padding: 26px 26px 20px;
+  border: 1px solid #dde5f8;
+  background:
+    radial-gradient(circle at 12% 16%, rgba(129, 140, 248, 0.16), transparent 30%),
+    radial-gradient(circle at 88% 12%, rgba(103, 232, 249, 0.12), transparent 24%),
+    radial-gradient(circle at 50% 62%, rgba(255, 255, 255, 0.82), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(246, 249, 255, 0.97));
+  box-shadow: 0 28px 60px rgba(148, 163, 184, 0.14);
+}
+
+.agent-logic-header {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: end;
+}
+
+.agent-logic-eyebrow {
+  margin: 0 0 8px;
+  color: #6366f1;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.agent-logic-header h3 {
+  margin: 0;
+  font-size: 1.44rem;
+}
+
+.agent-logic-header > p {
+  margin: 0;
+  max-width: 430px;
+  color: #64748b;
+  line-height: 1.7;
+  font-size: 0.95rem;
+}
+
+.agent-logic-meta {
+  position: relative;
+  z-index: 1;
+  margin-top: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.agent-logic-meta span {
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid #dbe4f5;
+  color: #475569;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+  box-shadow: 0 10px 20px rgba(148, 163, 184, 0.08);
+}
+
+.agent-flow-canvas {
+  position: relative;
+  z-index: 1;
+  margin-top: 20px;
+  height: 920px;
+  overflow: hidden;
+  border-radius: 28px;
+  border: 1px solid #e2e8f6;
+  background:
+    radial-gradient(circle at top center, rgba(129, 140, 248, 0.08), transparent 28%),
+    linear-gradient(180deg, rgba(249, 251, 255, 0.99), rgba(255, 255, 255, 0.99));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.94),
+    0 18px 42px rgba(148, 163, 184, 0.08);
+}
+
+.agent-flow-canvas .react-flow__renderer,
+.agent-flow-canvas .react-flow__viewport {
+  background: transparent;
+}
+
+.agent-flow-canvas .react-flow__node {
+  cursor: default;
+}
+
+.agent-flow-canvas .react-flow__pane {
+  cursor: grab;
+}
+
+.agent-flow-canvas .react-flow__edge-path {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.agent-flow-canvas .react-flow__edge-marker path {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.agent-flow-canvas .react-flow__attribution {
+  display: none;
+}
+
+.agent-flow-node {
+  min-width: 200px;
+  padding: 18px 18px 16px;
+  border-radius: 26px;
+  border: 1px solid rgba(218, 225, 242, 0.95);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 249, 255, 0.98));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.97),
+    0 20px 40px rgba(148, 163, 184, 0.1);
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+.agent-flow-node:hover {
+  transform: translateY(-2px);
+}
+
+.agent-flow-node-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-flow-node-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 6px 12px;
+  border: 1px solid rgba(209, 218, 245, 0.96);
+  background: rgba(255, 255, 255, 0.88);
+  color: #63708d;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 0.74rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.agent-flow-node-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: end;
+  gap: 6px;
+}
+
+.agent-flow-node-badges span {
+  border-radius: 999px;
+  padding: 5px 10px;
+  background: rgba(237, 242, 255, 0.92);
+  color: #6b7a95;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.agent-flow-node h4 {
+  margin: 12px 0 0;
+  color: #0f172a;
+  font-size: 1.08rem;
+  line-height: 1.3;
+}
+
+.agent-flow-node p {
+  margin: 9px 0 0;
+  color: #64748b;
+  line-height: 1.72;
+  font-size: 0.9rem;
+}
+
+.agent-flow-node code,
+.agent-flow-item code {
+  display: block;
+  margin-top: 5px;
+  color: #6b7cff;
+  font-size: 0.74rem;
+  font-family: "Space Grotesk", sans-serif;
+}
+
+.agent-flow-node-entry,
+.agent-flow-node-router {
+  border-radius: 999px;
+  text-align: center;
+  padding: 18px 20px;
+}
+
+.agent-flow-node-entry .agent-flow-node-header,
+.agent-flow-node-router .agent-flow-node-header {
+  justify-content: center;
+}
+
+.agent-flow-node-entry .agent-flow-node-badges,
+.agent-flow-node-router .agent-flow-node-badges {
+  justify-content: center;
+}
+
+.agent-flow-node-entry {
+  border-color: rgba(129, 140, 248, 0.32);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    0 18px 36px rgba(129, 140, 248, 0.12);
+}
+
+.agent-flow-node-router {
+  border-color: rgba(99, 102, 241, 0.2);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 247, 255, 0.97));
+}
+
+.agent-flow-node-core {
+  border-radius: 34px;
+  padding: 24px 24px 22px;
+  border-color: rgba(120, 131, 255, 0.22);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(129, 140, 248, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.985), rgba(245, 248, 255, 0.98));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    0 30px 60px rgba(99, 102, 241, 0.12),
+    0 0 0 1px rgba(255, 255, 255, 0.6);
+  animation: agentCorePulse 4.6s ease-in-out infinite;
+}
+
+.agent-flow-core-shell {
+  position: relative;
+  margin-top: 18px;
+  padding-left: 26px;
+}
+
+.agent-flow-core-line {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  bottom: 10px;
+  width: 1px;
+  background: linear-gradient(180deg, rgba(129, 140, 248, 0.05), rgba(129, 140, 248, 0.42), rgba(129, 140, 248, 0.05));
+}
+
+.agent-flow-core-steps {
+  display: grid;
+  gap: 12px;
+}
+
+.agent-flow-core-step {
+  position: relative;
+  display: flex;
+  gap: 14px;
+  width: 100%;
+  padding: 14px 16px 14px 18px;
+  border: 1px solid rgba(218, 226, 245, 0.95);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 12px 28px rgba(148, 163, 184, 0.1);
+  cursor: pointer;
+  text-align: left;
+  transition: transform 0.24s ease, border-color 0.24s ease, box-shadow 0.24s ease, background 0.24s ease;
+}
+
+.agent-flow-core-step::before {
+  content: "";
+  position: absolute;
+  left: -20px;
+  top: 24px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.22);
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.12);
+}
+
+.agent-flow-core-step:hover {
+  transform: translateX(3px);
+  border-color: rgba(129, 140, 248, 0.24);
+}
+
+.agent-flow-core-step.is-active {
+  border-color: rgba(129, 140, 248, 0.52);
+  background: linear-gradient(180deg, rgba(244, 246, 255, 0.98), rgba(255, 255, 255, 0.98));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    0 18px 38px rgba(99, 102, 241, 0.14),
+    0 0 0 3px rgba(129, 140, 248, 0.08);
+}
+
+.agent-flow-core-step.is-active::before {
+  background: rgba(99, 102, 241, 0.74);
+  box-shadow:
+    0 0 0 4px rgba(129, 140, 248, 0.12),
+    0 0 18px rgba(99, 102, 241, 0.22);
+}
+
+.agent-flow-core-step-index {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  height: 32px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.agent-flow-core-step-copy strong {
+  display: block;
+  color: #0f172a;
+  font-size: 0.95rem;
+}
+
+.agent-flow-core-step-copy span {
+  display: block;
+  margin-top: 5px;
+  color: #64748b;
+  line-height: 1.68;
+  font-size: 0.84rem;
+}
+
+.agent-flow-node-branch,
+.agent-flow-node-capability,
+.agent-flow-node-knowledge,
+.agent-flow-node-delivery {
+  border-radius: 28px;
+}
+
+.agent-flow-node-branch {
+  border-color: rgba(250, 204, 21, 0.24);
+  background:
+    radial-gradient(circle at top left, rgba(250, 204, 21, 0.1), transparent 26%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(255, 251, 235, 0.98));
+}
+
+.agent-flow-node-capability {
+  border-color: rgba(251, 146, 60, 0.18);
+  background:
+    radial-gradient(circle at top left, rgba(251, 146, 60, 0.08), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(255, 247, 237, 0.98));
+}
+
+.agent-flow-node-capability.is-active {
+  border-color: rgba(251, 146, 60, 0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    0 22px 42px rgba(251, 146, 60, 0.12),
+    0 0 0 3px rgba(251, 146, 60, 0.08);
+}
+
+.agent-flow-node-knowledge {
+  border-color: rgba(45, 212, 191, 0.22);
+  background:
+    radial-gradient(circle at top left, rgba(45, 212, 191, 0.1), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(240, 253, 250, 0.98));
+}
+
+.agent-flow-node-delivery {
+  border-color: rgba(99, 102, 241, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(99, 102, 241, 0.08), transparent 24%),
+    radial-gradient(circle at top left, rgba(103, 232, 249, 0.08), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(243, 247, 255, 0.98));
+}
+
+.agent-flow-item-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.agent-flow-item-list-delivery {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.agent-flow-item {
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(219, 226, 245, 0.94);
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.94);
+}
+
+.agent-flow-item strong {
+  display: block;
+  color: #0f172a;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.agent-flow-item span {
+  display: block;
+  margin-top: 6px;
+  color: #64748b;
+  line-height: 1.6;
+  font-size: 0.8rem;
+}
+
+@keyframes agentCorePulse {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.98),
+      0 30px 60px rgba(99, 102, 241, 0.12),
+      0 0 0 1px rgba(255, 255, 255, 0.6);
+  }
+  50% {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.98),
+      0 34px 70px rgba(99, 102, 241, 0.16),
+      0 0 0 1px rgba(255, 255, 255, 0.65);
+  }
+}
+
 .workflow-track {
   margin-top: 14px;
   display: grid;
@@ -1396,6 +1821,15 @@
     grid-template-columns: 1fr;
   }
 
+  .agent-logic-header {
+    flex-direction: column;
+    align-items: start;
+  }
+
+  .agent-flow-canvas {
+    height: 780px;
+  }
+
   .architecture-section {
     padding-top: 28px;
   }
@@ -1471,6 +1905,75 @@
   .architecture-accordion-body {
     padding-left: 16px;
     padding-right: 16px;
+  }
+
+  .agent-logic-board {
+    padding: 18px;
+    border-radius: 18px;
+  }
+
+  .agent-logic-meta {
+    gap: 8px;
+  }
+
+  .agent-logic-meta span {
+    font-size: 0.76rem;
+    padding: 6px 10px;
+  }
+
+  .agent-flow-canvas {
+    height: 720px;
+  }
+
+  .agent-flow-node {
+    padding: 14px 15px;
+    border-radius: 18px;
+  }
+
+  .agent-flow-node h4 {
+    font-size: 0.94rem;
+  }
+
+  .agent-flow-node p {
+    font-size: 0.82rem;
+    line-height: 1.6;
+  }
+
+  .agent-flow-node code {
+    font-size: 0.72rem;
+  }
+
+  .agent-flow-node-badges {
+    gap: 4px;
+  }
+
+  .agent-flow-node-chip {
+    padding: 5px 10px;
+    font-size: 0.72rem;
+  }
+
+  .agent-flow-node-badges span {
+    padding: 4px 8px;
+    font-size: 0.64rem;
+  }
+
+  .agent-flow-core-shell {
+    padding-left: 20px;
+  }
+
+  .agent-flow-core-step {
+    gap: 10px;
+    padding: 12px 14px 12px 16px;
+  }
+
+  .agent-flow-core-step-index {
+    min-width: 34px;
+    height: 28px;
+    font-size: 0.72rem;
+  }
+
+  .agent-flow-item-list-delivery {
+    grid-template-columns: 1fr;
   }
 
   .architecture-scene {

@@ -1,5 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Background,
+  BackgroundVariant,
+  Handle,
+  MarkerType,
+  Position,
+  ReactFlow,
+  type Edge,
+  type Node,
+  type NodeProps,
+} from "@xyflow/react";
 import { useLocation, useNavigate } from "react-router-dom";
+import "@xyflow/react/dist/style.css";
 import "./IndexPage.css";
 import { CHAT_TITLE, TIANDITU_API_KEY } from "../lib/consts";
 import { loadAdminGeoJson } from "../services/resourceService";
@@ -20,6 +32,27 @@ interface CsvCase {
 interface RegionCount {
   name: string;
   count: number;
+}
+
+type AgentFlowNodeKind = "entry" | "router" | "branch" | "core" | "capability" | "knowledge" | "delivery";
+
+interface AgentFlowItem {
+  id?: string;
+  title: string;
+  caption?: string;
+  code?: string;
+  active?: boolean;
+}
+
+interface AgentFlowNodeData extends Record<string, unknown> {
+  title: string;
+  chip?: string;
+  description?: string;
+  kind: AgentFlowNodeKind;
+  active?: boolean;
+  badges?: string[];
+  items?: AgentFlowItem[];
+  onActivateStage?: (stageId: string) => void;
 }
 
 const coreModules = [
@@ -56,6 +89,96 @@ const demoFlow = [
   "联动地图查看空间证据",
   "导出结果用于汇报",
 ];
+
+const agentLogicQuickPath = [
+  {
+    id: "general_qa_prepare",
+    code: "general_qa_prepare",
+    title: "通用问答准备",
+    text: "先整理通用问题上下文，准备进入对话代理。",
+  },
+  {
+    id: "general_qa_agent",
+    code: "general_qa_agent",
+    title: "问答代理",
+    text: "由 Agent 决定是否需要调用检索工具补充信息。",
+  },
+  {
+    id: "general_qa_finalize",
+    code: "general_qa_finalize",
+    title: "直接回答返回",
+    text: "整理回答并直接返回，适合非参数配置类问题。",
+  },
+] as const;
+
+const agentLogicMainPath = [
+  {
+    id: "intake",
+    code: "intake",
+    title: "信息抽取",
+    text: "抽取模型、地区、目标参数等关键条件。",
+  },
+  {
+    id: "human_check",
+    code: "human_check",
+    title: "人工核对",
+    text: "检查信息是否齐全，必要时进入人工确认。",
+  },
+  {
+    id: "route",
+    code: "route / complement / approval",
+    title: "分支判断与补全",
+    text: "决定直接检索还是先补齐条件，并在关键节点请求确认。",
+  },
+  {
+    id: "gather_evidence_agent",
+    code: "gather_evidence_agent",
+    title: "证据检索",
+    text: "组织 GraphRAG 检索、案例空间查询和证据汇总。",
+  },
+  {
+    id: "synthesize",
+    code: "synthesize",
+    title: "综合推理",
+    text: "把多来源证据整理成参数建议与解释链路。",
+  },
+  {
+    id: "quality_check",
+    code: "quality_check",
+    title: "质量检查",
+    text: "做最终复核，输出适合展示和追问的回答。",
+  },
+] as const;
+
+const agentLogicSupportCards = [
+  {
+    id: "tools",
+    chip: "Tool Layer",
+    title: "GraphRAG 工具层",
+    text: "graphrag_local_search、graphrag_global_search 与 get_cases 在这里被调度。",
+    related: ["gather_evidence_agent", "synthesize"],
+  },
+  {
+    id: "hitl",
+    chip: "HITL Gate",
+    title: "人工确认环节",
+    text: "当地区、模型或参数缺失时，通过 human_check / approval 让用户补充信息。",
+    related: ["human_check", "route"],
+  },
+  {
+    id: "state",
+    chip: "State Sync",
+    title: "状态与线程同步",
+    text: "步骤进度、可视化结果和回答内容会同步写入线程记录，支持续聊与回看。",
+    related: ["quality_check"],
+  },
+] as const;
+
+const agentLogicOutputs = [
+  { id: "answer", title: "参数建议与结论回答", text: "输出结构化建议和最终解释。" },
+  { id: "evidence", title: "证据摘要、图谱和地图联动", text: "把证据与空间线索一起交付前端。" },
+  { id: "thread", title: "线程持久化与步骤状态回放", text: "将状态写回线程，支持续聊与复盘。" },
+] as const;
 
 const architectureSignals = [
   "更容易上手",
@@ -243,6 +366,93 @@ const architectureKnowledgeAssets = [
     caption: "连接地图点位、区域分布与地理证据",
   },
 ] as const;
+
+const invisibleHandleStyle = {
+  width: 8,
+  height: 8,
+  opacity: 0,
+  pointerEvents: "none" as const,
+};
+
+const AgentFlowNodeCard: React.FC<NodeProps> = ({ data }) => {
+  const nodeData = data as AgentFlowNodeData;
+  const isCore = nodeData.kind === "core";
+
+  return (
+    <div className={`agent-flow-node agent-flow-node-${nodeData.kind} ${nodeData.active ? "is-active" : ""}`}>
+      <Handle type="target" id="t-top" position={Position.Top} style={invisibleHandleStyle} />
+      <Handle type="target" id="t-right" position={Position.Right} style={invisibleHandleStyle} />
+      <Handle type="target" id="t-bottom" position={Position.Bottom} style={invisibleHandleStyle} />
+      <Handle type="target" id="t-left" position={Position.Left} style={invisibleHandleStyle} />
+      <Handle type="source" id="s-top" position={Position.Top} style={invisibleHandleStyle} />
+      <Handle type="source" id="s-right" position={Position.Right} style={invisibleHandleStyle} />
+      <Handle type="source" id="s-bottom" position={Position.Bottom} style={invisibleHandleStyle} />
+      <Handle type="source" id="s-left" position={Position.Left} style={invisibleHandleStyle} />
+
+      <div className="agent-flow-node-header">
+        {nodeData.chip ? <span className="agent-flow-node-chip">{nodeData.chip}</span> : <span />}
+        {nodeData.badges?.length ? (
+          <div className="agent-flow-node-badges">
+            {nodeData.badges.map((badge) => (
+              <span key={badge}>{badge}</span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      <h4>{nodeData.title}</h4>
+      {nodeData.description ? <p>{nodeData.description}</p> : null}
+
+      {isCore && nodeData.items?.length ? (
+        <div className="agent-flow-core-shell">
+          <div className="agent-flow-core-line" />
+          <div className="agent-flow-core-steps">
+            {nodeData.items.map((item, index) => (
+              <button
+                key={item.id ?? item.title}
+                type="button"
+                className={`agent-flow-core-step ${item.active ? "is-active" : ""}`}
+                onMouseEnter={() => {
+                  if (item.id) {
+                    nodeData.onActivateStage?.(item.id);
+                  }
+                }}
+                onClick={() => {
+                  if (item.id) {
+                    nodeData.onActivateStage?.(item.id);
+                  }
+                }}
+              >
+                <span className="agent-flow-core-step-index">{String(index + 1).padStart(2, "0")}</span>
+                <div className="agent-flow-core-step-copy">
+                  <strong>{item.title}</strong>
+                  {item.code ? <code>{item.code}</code> : null}
+                  {item.caption ? <span>{item.caption}</span> : null}
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {!isCore && nodeData.items?.length ? (
+        <div className={`agent-flow-item-list agent-flow-item-list-${nodeData.kind}`}>
+          {nodeData.items.map((item) => (
+            <div key={item.id ?? item.title} className={`agent-flow-item ${item.active ? "is-active" : ""}`}>
+              <strong>{item.title}</strong>
+              {item.code ? <code>{item.code}</code> : null}
+              {item.caption ? <span>{item.caption}</span> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
+const agentFlowNodeTypes = {
+  logic: AgentFlowNodeCard,
+};
 
 function parseCsvLine(line: string): string[] {
   const fields: string[] = [];
@@ -483,6 +693,7 @@ export const IndexPage: React.FC = () => {
   const [loginName, setLoginName] = useState("");
   const [loginError, setLoginError] = useState("");
   const [activeArchitecturePanelId, setActiveArchitecturePanelId] = useState<string>("memory");
+  const [activeAgentStageId, setActiveAgentStageId] = useState<string>(agentLogicMainPath[0].id);
 
   const handleEnterSystem = () => {
     if (!currentUser) {
@@ -497,6 +708,16 @@ export const IndexPage: React.FC = () => {
   const handleJumpToGithub = () => {
     window.open("https://github.com/WeiXie-NNU/QA_GRAPHRAG", "_blank");
   };
+
+  useEffect(() => {
+    const ids = agentLogicMainPath.map((item) => item.id);
+    let cursor = 0;
+    const timer = window.setInterval(() => {
+      cursor = (cursor + 1) % ids.length;
+      setActiveAgentStageId(ids[cursor]);
+    }, 2400);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const loginSuggestions = useMemo(() => {
     const seen = new Set<string>();
@@ -627,6 +848,189 @@ export const IndexPage: React.FC = () => {
       architectureExplorerPanels[0],
     [activeArchitecturePanelId],
   );
+
+  const agentFlowNodes = useMemo<Node<AgentFlowNodeData>[]>(() => {
+    const supportActive = new Set(
+      agentLogicSupportCards
+        .filter((card) => card.related.some((item) => item === activeAgentStageId))
+        .map((card) => card.id),
+    );
+
+    return [
+      {
+        id: "entry",
+        type: "logic",
+        position: { x: 430, y: 32 },
+        style: { width: 370 },
+        data: {
+          chip: "Input Layer",
+          title: "用户问题 + 线程上下文",
+          description: "当前轮消息、历史线程状态与用户身份一起进入后端编排。",
+          badges: ["User Query", "Thread State"],
+          kind: "entry",
+        },
+      },
+      {
+        id: "intent_route",
+        type: "logic",
+        position: { x: 492, y: 174 },
+        style: { width: 248 },
+        data: {
+          chip: "Intent Router",
+          title: "问题路由",
+          description: "区分通用问答快返，或进入参数推理中枢。",
+          badges: ["Fast Path", "Reasoning Path"],
+          kind: "router",
+        },
+      },
+      {
+        id: "general_qa_branch",
+        type: "logic",
+        position: { x: 40, y: 286 },
+        style: { width: 280 },
+        data: {
+          chip: "General QA Fast Path",
+          title: "通用问答支路",
+          description: "针对非参数配置类问题，快速整理上下文、调用问答代理并直接返回。",
+          badges: ["Prepare", "Agent", "Finalize"],
+          items: agentLogicQuickPath.map((step) => ({
+            id: step.id,
+            title: step.title,
+            code: step.code,
+            caption: step.text,
+          })),
+          kind: "branch",
+        },
+      },
+      {
+        id: "reasoning_core",
+        type: "logic",
+        position: { x: 340, y: 250 },
+        style: { width: 500 },
+        data: {
+          chip: "LangGraph Orchestrator",
+          title: "推理编排中枢",
+          description: "把抽取、确认、检索、综合与质量检查组织成一次完整的后端推理闭环。",
+          badges: ["Planner", "GraphRAG", "HITL"],
+          items: agentLogicMainPath.map((step) => ({
+            id: step.id,
+            title: step.title,
+            code: step.code,
+            caption: step.text,
+            active: activeAgentStageId === step.id,
+          })),
+          kind: "core",
+          active: true,
+          onActivateStage: setActiveAgentStageId,
+        },
+      },
+      ...agentLogicSupportCards.map((card, index) => ({
+        id: card.id,
+        type: "logic" as const,
+        position: { x: 900, y: 286 + (index * 170) },
+        style: { width: 260 },
+        data: {
+          chip: card.chip,
+          title: card.title,
+          description: card.text,
+          kind: "capability" as const,
+          active: supportActive.has(card.id),
+        },
+      })),
+      {
+        id: "knowledge_base",
+        type: "logic",
+        position: { x: 40, y: 636 },
+        style: { width: 280 },
+        data: {
+          chip: "Knowledge Base",
+          title: "案例库 + 知识图谱 + 空间线索",
+          description: "GraphRAG 会联合相似案例、实体关系与空间线索，为参数推理补足证据。",
+          badges: ["案例库", "知识图谱", "空间线索"],
+          kind: "knowledge",
+        },
+      },
+      {
+        id: "delivery",
+        type: "logic",
+        position: { x: 358, y: 776 },
+        style: { width: 470 },
+        data: {
+          chip: "Delivery Layer",
+          title: "前端展示与线程沉淀",
+          description: "把回答、证据、地图/图谱联动与线程状态一起交付前端，方便演示、复核和续聊。",
+          badges: ["Answer", "Evidence", "Replay"],
+          items: agentLogicOutputs.map((item) => ({
+            id: item.id,
+            title: item.title,
+            caption: item.text,
+          })),
+          kind: "delivery",
+        },
+      },
+    ];
+  }, [activeAgentStageId]);
+
+  const agentFlowEdges = useMemo<Edge[]>(() => {
+    const supportActive = new Set(
+      agentLogicSupportCards
+        .filter((card) => card.related.some((item) => item === activeAgentStageId))
+        .map((card) => card.id),
+    );
+
+    const muted = {
+      stroke: "rgba(148, 163, 184, 0.36)",
+      strokeWidth: 1.5,
+    };
+
+    const live = {
+      stroke: "rgba(99, 102, 241, 0.58)",
+      strokeWidth: 1.9,
+    };
+
+    const warm = {
+      stroke: "rgba(251, 146, 60, 0.54)",
+      strokeWidth: 1.8,
+    };
+
+    const makeEdge = (
+      id: string,
+      source: string,
+      target: string,
+      sourceHandle: string,
+      targetHandle: string,
+      active = false,
+      colorMode: "indigo" | "orange" = "indigo",
+    ): Edge => ({
+      id,
+      source,
+      target,
+      sourceHandle,
+      targetHandle,
+      type: "bezier",
+      animated: false,
+      style: active ? (colorMode === "orange" ? warm : live) : muted,
+      markerEnd: active
+        ? {
+            type: MarkerType.Arrow,
+            color: colorMode === "orange" ? warm.stroke : live.stroke,
+            width: 16,
+            height: 16,
+          }
+        : undefined,
+    });
+
+    return [
+      makeEdge("entry-route", "entry", "intent_route", "s-bottom", "t-top", true),
+      makeEdge("route-core", "intent_route", "reasoning_core", "s-bottom", "t-top", true),
+      makeEdge("route-quick", "intent_route", "general_qa_branch", "s-left", "t-top", false),
+      makeEdge("core-tools", "reasoning_core", "tools", "s-right", "t-left", supportActive.has("tools"), "orange"),
+      makeEdge("core-hitl", "reasoning_core", "hitl", "s-right", "t-left", supportActive.has("hitl"), "orange"),
+      makeEdge("core-state", "reasoning_core", "state", "s-right", "t-left", supportActive.has("state"), "orange"),
+      makeEdge("knowledge-tools", "knowledge_base", "tools", "s-right", "t-bottom", false),
+      makeEdge("core-delivery", "reasoning_core", "delivery", "s-bottom", "t-top", true),
+    ];
+  }, [activeAgentStageId]);
 
   return (
     <div className="index-page">
@@ -914,6 +1318,45 @@ export const IndexPage: React.FC = () => {
               </ul>
             </div>
           </div>
+
+          <div className="agent-logic-board">
+            <div className="agent-logic-header">
+              <div>
+                <p className="agent-logic-eyebrow">LangGraph Backend</p>
+                <h3>后端智能体逻辑框图</h3>
+              </div>
+              <p>
+                后端不是一次性给答案，而是先路由问题，再按分支调用抽取、检索、人工确认和综合回答节点。
+              </p>
+            </div>
+
+            <div className="agent-logic-meta">
+              <span>中央编排中枢</span>
+              <span>通用问答快路径</span>
+              <span>GraphRAG / 人工确认 / 状态写回</span>
+              <span>支持拖动画布与缩放查看</span>
+            </div>
+
+            <div className="agent-flow-canvas">
+              <ReactFlow
+                nodes={agentFlowNodes}
+                edges={agentFlowEdges}
+                nodeTypes={agentFlowNodeTypes}
+                fitView
+                fitViewOptions={{ padding: 0.12, maxZoom: 1.05 }}
+                minZoom={0.55}
+                maxZoom={1.4}
+                nodesDraggable={false}
+                elementsSelectable={false}
+                nodesConnectable={false}
+                zoomOnDoubleClick={false}
+                proOptions={{ hideAttribution: true }}
+              >
+                <Background variant={BackgroundVariant.Dots} gap={24} size={1.1} color="#d8e0f2" />
+              </ReactFlow>
+            </div>
+          </div>
+
           <div className="workflow-track">
             {demoFlow.map((step, index) => (
               <div className="workflow-step" key={step}>
