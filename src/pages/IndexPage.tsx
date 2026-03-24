@@ -55,6 +55,18 @@ interface AgentFlowNodeData extends Record<string, unknown> {
   onActivateStage?: (stageId: string) => void;
 }
 
+type ArchitectureFlowNodeKind = "diamond" | "support" | "label";
+
+interface ArchitectureFlowNodeData extends Record<string, unknown> {
+  kind: ArchitectureFlowNodeKind;
+  title: string;
+  caption?: string;
+  description?: string;
+  badges?: string[];
+  active?: boolean;
+  accent?: string;
+}
+
 const coreModules = [
   {
     id: "retrieval",
@@ -181,117 +193,134 @@ const agentLogicOutputs = [
 ] as const;
 
 const architectureSignals = [
-  "更容易上手",
-  "支持续聊记忆",
-  "多步智能分析",
-  "证据与地图联动",
+  "前端交互",
+  "Runtime 桥接",
+  "智能体执行",
+  "知识服务",
+  "持久化",
 ];
 
 const architectureExplorerPanels = [
   {
-    id: "entry",
-    title: "统一入口体验",
-    headline: "从首页到问答页切换自然，第一次进入也能快速开始演示。",
+    id: "frontend",
+    title: "前端交互层",
+    headline: "负责问题输入、线程管理、过程展示、结果解释和图谱/地图联动。",
     summary:
-      "用户从首页登录后即可进入问答工作台，不需要理解底层流程，也能顺畅完成提问、查看结果和继续追问。",
+      "这是用户直接感知到的一层，承担从首页登录、进入问答工作台，到查看回答、证据、图谱和地图联动的完整交互体验。",
     details: [
-      "首页即入口，登录、进入系统、查看演示问题都集中在同一位置",
-      "从开始提问到查看图谱和地图，不需要跳出当前工作流",
-      "适合产品演示、汇报介绍和第一次上手体验",
+      "统一承接问题输入、线程切换、步骤进度和结果解释",
+      "把回答、图谱、地图和证据面板组织在同一套页面体验中",
+      "面向演示与实际使用场景，强调易理解、易追问和易复核",
     ],
-    relatedLayers: ["entry"],
+    layerIndex: "01",
     accent: "#9b8cff",
     soft: "rgba(155, 140, 255, 0.18)",
-    surfaceCards: [
-      { title: "首页入口", caption: "登录后即可开始提问" },
-      { title: "对话工作台", caption: "问题、结果与追问在同一页" },
-      { title: "结果联动", caption: "图谱与地图同步联动查看" },
-    ],
-    floatingBadges: ["单入口", "低学习成本", "演示友好"],
+    nodeBadges: ["问题输入", "线程管理", "过程展示", "结果解释", "图谱/地图联动"],
+    floatingBadges: ["单入口", "多视图联动", "演示友好"],
   },
   {
-    id: "memory",
-    title: "会话记忆与续聊",
-    headline: "每次回来都能接着问，而不是重新开始。",
+    id: "runtime",
+    title: "Runtime 桥接层",
+    headline: "负责浏览器与智能体后端之间的协议桥接和状态恢复。",
     summary:
-      "系统会保留每条对话线程的上下文、历史回答和关键状态，让用户继续追问时仍然保持前后连贯。",
+      "这一层连接浏览器端体验和后端执行链路，负责会话协议、事件同步、前端状态恢复以及线程上下文回填。",
     details: [
-      "线程化会话让不同问题和不同用户彼此分开",
-      "支持继续追问、补充条件和回看历史结果",
-      "演示现场切换线程时，状态和内容都能平滑恢复",
+      "连接浏览器端 UI 与后端 Agent 执行协议",
+      "负责事件流、状态同步和恢复线程上下文",
+      "保证页面刷新、重入或切换线程后仍能接回当前会话",
     ],
-    relatedLayers: ["entry", "memory"],
+    layerIndex: "02",
     accent: "#f2c94c",
-    soft: "rgba(242, 201, 76, 0.2)",
-    surfaceCards: [
-      { title: "历史线程", caption: "不同主题的会话彼此独立" },
-      { title: "状态恢复", caption: "返回时自动接上此前上下文" },
-      { title: "继续追问", caption: "补充条件后仍保持连贯" },
-    ],
-    floatingBadges: ["线程记忆", "续聊体验", "状态恢复"],
+    soft: "rgba(242, 201, 76, 0.18)",
+    nodeBadges: ["协议桥接", "状态恢复", "事件同步", "线程回填"],
+    floatingBadges: ["Browser ↔ Agent", "状态恢复", "续聊衔接"],
   },
   {
-    id: "reasoning",
-    title: "多步智能推理",
-    headline: "系统会自动拆解问题、逐步分析，再给出更可信的回答。",
+    id: "agent",
+    title: "智能体执行层",
+    headline: "负责多步推理、工具调用、流程控制和状态管理。",
     summary:
-      "面对复杂问题时，系统不是直接生成一句答案，而是先理解问题、组织推理步骤、再综合输出，过程更清晰。",
+      "这是系统的核心编排中枢，围绕 LangGraph 把问题路由、参数抽取、人工确认、证据检索、综合推理和质量检查组织成闭环。",
     details: [
-      "先理解问题意图，再进入多步骤分析",
-      "重要节点可以进行人工确认，避免关键信息遗漏",
-      "最终答案会结合检索结果和推理结论一起给出",
+      "在后端统一管理多步推理流程和执行状态",
+      "按需调用 GraphRAG、案例检索与人工确认等工具能力",
+      "把复杂问题拆成可控制、可解释、可回放的执行链路",
     ],
-    relatedLayers: ["reasoning"],
+    layerIndex: "03",
     accent: "#5b7cff",
     soft: "rgba(91, 124, 255, 0.18)",
-    surfaceCards: [
-      { title: "问题理解", caption: "先识别意图和任务重点" },
-      { title: "步骤推理", caption: "分步分析而不是直接给结论" },
-      { title: "质量复核", caption: "关键节点可进行人工确认" },
-    ],
-    floatingBadges: ["多步推理", "过程可见", "更可信"],
+    nodeBadges: ["多步推理", "工具调用", "流程控制", "状态管理"],
+    floatingBadges: ["LangGraph", "Orchestrator", "HITL"],
   },
   {
-    id: "evidence",
-    title: "证据与空间线索",
-    headline: "不只告诉你结论，还告诉你依据和相关区域线索。",
+    id: "knowledge",
+    title: "知识服务层",
+    headline: "负责 GraphRAG 检索、案例空间数据、图谱数据和结果持久化前的服务编排。",
     summary:
-      "系统会把图谱关系、证据摘要、地图点位和区域分布放到一起，帮助用户理解结论从哪里来。",
+      "这一层沉淀并组织系统真正依赖的知识能力，包括图谱检索、案例空间数据、实体关系与证据结果服务，为智能体执行提供事实基础。",
     details: [
-      "图谱关系和证据摘要可以一起查看",
-      "地图点位和区域统计帮助理解空间分布",
-      "更适合需要解释来源、复核结果的场景",
+      "统一封装 GraphRAG 检索与案例空间查询能力",
+      "为推理过程提供图谱、案例和地理证据支撑",
+      "把多源结果整理成适合前端展示和后端继续推理的结构",
     ],
-    relatedLayers: ["evidence"],
+    layerIndex: "04",
     accent: "#63dfbf",
     soft: "rgba(99, 223, 191, 0.18)",
-    surfaceCards: [
-      { title: "证据链", caption: "答案与依据同时展示" },
-      { title: "关系图谱", caption: "实体关系帮助理解来龙去脉" },
-      { title: "地图线索", caption: "空间分布与区域特征一起看" },
-    ],
-    floatingBadges: ["证据可见", "地图联动", "空间洞察"],
+    nodeBadges: ["GraphRAG", "案例空间数据", "图谱数据", "证据整理"],
+    floatingBadges: ["Retrieval", "Spatial Cases", "Knowledge Graph"],
   },
   {
-    id: "delivery",
-    title: "演示与复核输出",
-    headline: "既能用来现场演示，也方便人工确认和结果复盘。",
+    id: "persistence",
+    title: "持久化层",
+    headline: "负责线程、消息、Agent 状态、检索结果和地图数据存储。",
     summary:
-      "整个界面围绕“看得懂、讲得清、能复核”来设计，用户能快速理解系统特点，也能回看关键依据与过程。",
+      "持久化层让系统具备续聊、回放、复盘与长期沉淀能力，保证线程、消息、步骤状态和检索结果都能在后续再次被调用。",
     details: [
-      "回答、步骤、证据、地图在一个页面联动展示",
-      "适合对外演示、内部沟通和人工确认",
-      "减少只看结论时的信息断层",
+      "保存线程、消息、Agent 状态和关键检索结果",
+      "沉淀地图数据、图谱结果和运行过程中的中间状态",
+      "为前端恢复、后端续跑和结果复盘提供统一存储底座",
     ],
-    relatedLayers: ["delivery"],
+    layerIndex: "05",
     accent: "#ff9e57",
     soft: "rgba(255, 158, 87, 0.18)",
-    surfaceCards: [
-      { title: "展示输出", caption: "面向汇报的清晰表达方式" },
-      { title: "人工复核", caption: "关键信息可以快速回看确认" },
-      { title: "多视图联动", caption: "回答、证据和空间信息同屏呈现" },
-    ],
-    floatingBadges: ["汇报友好", "可解释", "可复盘"],
+    nodeBadges: ["线程", "消息", "Agent 状态", "检索结果", "地图数据"],
+    floatingBadges: ["Threads", "State Store", "Replay"],
+  },
+] as const;
+
+const architectureUserExperienceCards = [
+  {
+    id: "experience-input",
+    title: "问题输入与线程",
+    caption: "输入问题、切换线程、续聊追问",
+  },
+  {
+    id: "experience-process",
+    title: "过程展示与解释",
+    caption: "查看步骤进度、证据摘要与结果解释",
+  },
+  {
+    id: "experience-visual",
+    title: "图谱 / 地图联动",
+    caption: "在同一界面联动图谱关系与空间线索",
+  },
+] as const;
+
+const architectureKnowledgeCards = [
+  {
+    id: "knowledge-retrieval",
+    title: "GraphRAG 检索",
+    caption: "GraphRAG、本地案例与图谱证据服务",
+  },
+  {
+    id: "knowledge-cases",
+    title: "案例空间数据",
+    caption: "案例点位、区域统计与空间线索组织",
+  },
+  {
+    id: "knowledge-store",
+    title: "结果与状态存储",
+    caption: "线程、消息、Agent 状态与检索结果持久化",
   },
 ] as const;
 
@@ -314,57 +343,6 @@ const caseIntakeBenefits = [
   "补充案例库内容，不只依赖已有样本",
   "让后续问答能参考更多历史案例与经验",
   "把上传、抽取、入库做成统一流程，便于演示与维护",
-] as const;
-
-const architecturePlatformLayers = [
-  {
-    id: "entry",
-    title: "会话编排",
-    caption: "承接首页入口、线程创建与工作台联动",
-    panelId: "entry",
-  },
-  {
-    id: "memory",
-    title: "上下文记忆",
-    caption: "保存历史状态，让用户追问自然不断线",
-    panelId: "memory",
-  },
-  {
-    id: "reasoning",
-    title: "多步推理",
-    caption: "理解问题、拆解步骤并组织可信回答",
-    panelId: "reasoning",
-  },
-  {
-    id: "evidence",
-    title: "证据整合",
-    caption: "把图谱、地图和摘要证据并入分析链路",
-    panelId: "evidence",
-  },
-  {
-    id: "delivery",
-    title: "展示复核",
-    caption: "把结果包装成更适合演示与确认的输出",
-    panelId: "delivery",
-  },
-] as const;
-
-const architectureKnowledgeAssets = [
-  {
-    id: "cases",
-    title: "案例库",
-    caption: "沉淀相似问题、参数经验与历史结果参考",
-  },
-  {
-    id: "graph",
-    title: "知识图谱",
-    caption: "组织实体与关系，为答案建立解释链路",
-  },
-  {
-    id: "geo",
-    title: "空间线索",
-    caption: "连接地图点位、区域分布与地理证据",
-  },
 ] as const;
 
 const invisibleHandleStyle = {
@@ -452,6 +430,66 @@ const AgentFlowNodeCard: React.FC<NodeProps> = ({ data }) => {
 
 const agentFlowNodeTypes = {
   logic: AgentFlowNodeCard,
+};
+
+const ArchitectureNodeCard: React.FC<NodeProps> = ({ data }) => {
+  const nodeData = data as ArchitectureFlowNodeData & { layerIndex?: string };
+
+  return (
+    <div
+      className={`architecture-flow-node architecture-flow-node-${nodeData.kind} ${nodeData.active ? "is-active" : ""}`}
+      style={{ "--architecture-node-accent": nodeData.accent ?? "#818cf8" } as React.CSSProperties}
+    >
+      <Handle type="target" id="t-top" position={Position.Top} style={invisibleHandleStyle} />
+      <Handle type="target" id="t-right" position={Position.Right} style={invisibleHandleStyle} />
+      <Handle type="target" id="t-bottom" position={Position.Bottom} style={invisibleHandleStyle} />
+      <Handle type="target" id="t-left" position={Position.Left} style={invisibleHandleStyle} />
+      <Handle type="source" id="s-top" position={Position.Top} style={invisibleHandleStyle} />
+      <Handle type="source" id="s-right" position={Position.Right} style={invisibleHandleStyle} />
+      <Handle type="source" id="s-bottom" position={Position.Bottom} style={invisibleHandleStyle} />
+      <Handle type="source" id="s-left" position={Position.Left} style={invisibleHandleStyle} />
+
+      {nodeData.kind === "label" ? (
+        <span className="architecture-flow-node-label-copy">{nodeData.title}</span>
+      ) : (
+        <>
+          {nodeData.kind === "diamond" ? (
+            <div className="architecture-flow-node-top">
+              {nodeData.layerIndex ? (
+                <span className="architecture-flow-node-index">{nodeData.layerIndex}</span>
+              ) : (
+                <span />
+              )}
+              <span className="architecture-flow-node-dot" />
+            </div>
+          ) : (
+            <div className="architecture-flow-support-visual">
+              <span />
+              <span />
+              <span />
+            </div>
+          )}
+
+          <div className="architecture-flow-node-copy">
+            <h4>{nodeData.title}</h4>
+            {nodeData.caption ? <p className="architecture-flow-node-caption">{nodeData.caption}</p> : null}
+            {nodeData.description ? <p>{nodeData.description}</p> : null}
+            {nodeData.badges?.length ? (
+              <div className="architecture-flow-node-badges">
+                {nodeData.badges.map((badge) => (
+                  <span key={badge}>{badge}</span>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+const architectureFlowNodeTypes = {
+  layer: ArchitectureNodeCard,
 };
 
 function parseCsvLine(line: string): string[] {
@@ -692,7 +730,7 @@ export const IndexPage: React.FC = () => {
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [loginName, setLoginName] = useState("");
   const [loginError, setLoginError] = useState("");
-  const [activeArchitecturePanelId, setActiveArchitecturePanelId] = useState<string>("memory");
+  const [activeArchitecturePanelId, setActiveArchitecturePanelId] = useState<string>("agent");
   const [activeAgentStageId, setActiveAgentStageId] = useState<string>(agentLogicMainPath[0].id);
 
   const handleEnterSystem = () => {
@@ -848,6 +886,129 @@ export const IndexPage: React.FC = () => {
       architectureExplorerPanels[0],
     [activeArchitecturePanelId],
   );
+
+  const architectureFlowNodes = useMemo<Node[]>(() => {
+    const layerNodes = architectureExplorerPanels.map((panel, index) => ({
+      id: panel.id,
+      type: "layer" as const,
+      position: { x: 164, y: 192 + index * 122 },
+      style: { width: index === 2 ? 404 : 372 },
+      data: {
+        kind: "diamond" as const,
+        layerIndex: panel.layerIndex,
+        title: panel.title,
+        caption: panel.headline,
+        badges: panel.nodeBadges.slice(0, 2),
+        active: panel.id === activeArchitecturePanelId,
+        accent: panel.accent,
+      } satisfies ArchitectureFlowNodeData & { layerIndex: string },
+    }));
+
+    const userNodes = architectureUserExperienceCards.map((item, index) => ({
+      id: item.id,
+      type: "layer" as const,
+      position: { x: 118 + index * 202, y: 26 },
+      style: { width: 182 },
+      data: {
+        kind: "support" as const,
+        title: item.title,
+        caption: item.caption,
+        accent: architectureExplorerPanels[0].accent,
+      } satisfies ArchitectureFlowNodeData,
+    }));
+
+    const knowledgeNodes = architectureKnowledgeCards.map((item, index) => ({
+      id: item.id,
+      type: "layer" as const,
+      position: { x: 118 + index * 202, y: 828 },
+      style: { width: 182 },
+      data: {
+        kind: "support" as const,
+        title: item.title,
+        caption: item.caption,
+        accent: architectureExplorerPanels[index === 2 ? 4 : 3].accent,
+      } satisfies ArchitectureFlowNodeData,
+    }));
+
+    const labelNodes: Node[] = [
+      {
+        id: "label-user",
+        type: "layer",
+        position: { x: 14, y: 88 },
+        style: { width: 84 },
+        data: {
+          kind: "label",
+          title: "用户层",
+          accent: architectureExplorerPanels[0].accent,
+        } satisfies ArchitectureFlowNodeData,
+      },
+      {
+        id: "label-core",
+        type: "layer",
+        position: { x: 488, y: 136 },
+        style: { width: 120 },
+        data: {
+          kind: "label",
+          title: "系统架构分层",
+          accent: activeArchitecturePanel.accent,
+        } satisfies ArchitectureFlowNodeData,
+      },
+      {
+        id: "label-knowledge",
+        type: "layer",
+        position: { x: 14, y: 896 },
+        style: { width: 96 },
+        data: {
+          kind: "label",
+          title: "知识与存储",
+          accent: architectureExplorerPanels[3].accent,
+        } satisfies ArchitectureFlowNodeData,
+      },
+    ];
+
+    return [...labelNodes, ...userNodes, ...layerNodes, ...knowledgeNodes];
+  }, [activeArchitecturePanel.accent, activeArchitecturePanelId]);
+
+  const architectureFlowEdges = useMemo<Edge[]>(() => {
+    const makeEdge = (
+      source: string,
+      target: string,
+      sourceHandle: string,
+      targetHandle: string,
+      active = false,
+    ): Edge => ({
+      id: `${source}-${target}`,
+      source,
+      target,
+      sourceHandle,
+      targetHandle,
+      type: "simplebezier",
+      animated: false,
+      style: {
+        stroke: active ? activeArchitecturePanel.accent : "rgba(148, 163, 184, 0.24)",
+        strokeWidth: active ? 2 : 1.35,
+      },
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: active ? activeArchitecturePanel.accent : "rgba(148, 163, 184, 0.26)",
+        width: active ? 16 : 13,
+        height: active ? 16 : 13,
+      },
+    });
+
+    return [
+      makeEdge("frontend", "runtime", "s-bottom", "t-top", activeArchitecturePanelId === "frontend" || activeArchitecturePanelId === "runtime"),
+      makeEdge("runtime", "agent", "s-bottom", "t-top", activeArchitecturePanelId === "runtime" || activeArchitecturePanelId === "agent"),
+      makeEdge("agent", "knowledge", "s-bottom", "t-top", activeArchitecturePanelId === "agent" || activeArchitecturePanelId === "knowledge"),
+      makeEdge("knowledge", "persistence", "s-bottom", "t-top", activeArchitecturePanelId === "knowledge" || activeArchitecturePanelId === "persistence"),
+      makeEdge("frontend", "experience-input", "s-top", "t-bottom", activeArchitecturePanelId === "frontend"),
+      makeEdge("frontend", "experience-process", "s-top", "t-bottom", activeArchitecturePanelId === "frontend"),
+      makeEdge("frontend", "experience-visual", "s-top", "t-bottom", activeArchitecturePanelId === "frontend"),
+      makeEdge("knowledge", "knowledge-retrieval", "s-bottom", "t-top", activeArchitecturePanelId === "knowledge"),
+      makeEdge("knowledge", "knowledge-cases", "s-bottom", "t-top", activeArchitecturePanelId === "knowledge"),
+      makeEdge("persistence", "knowledge-store", "s-bottom", "t-top", activeArchitecturePanelId === "persistence"),
+    ];
+  }, [activeArchitecturePanel.accent, activeArchitecturePanelId]);
 
   const agentFlowNodes = useMemo<Node<AgentFlowNodeData>[]>(() => {
     const supportActive = new Set(
@@ -1179,119 +1340,52 @@ export const IndexPage: React.FC = () => {
             </div>
 
             <div
-              className="architecture-scene"
+              className="architecture-flow-panel"
               style={
                 {
-                  "--scene-accent": activeArchitecturePanel.accent,
-                  "--scene-soft": activeArchitecturePanel.soft,
+                  "--architecture-flow-accent": activeArchitecturePanel.accent,
+                  "--architecture-flow-soft": activeArchitecturePanel.soft,
                 } as React.CSSProperties
               }
             >
-              <div className="scene-user-layer">
-                <div className="scene-layer-chip">用户层</div>
-                <div className="scene-user-board">
-                  <div className="scene-user-card-grid">
-                    {activeArchitecturePanel.surfaceCards.map((card, index) => (
-                      <article
-                        key={card.title}
-                        className={`scene-user-card scene-user-card-${index + 1}`}
-                      >
-                        <div className="scene-user-card-screen">
-                          <span />
-                          <span />
-                          <span />
-                        </div>
-                        <strong>{card.title}</strong>
-                        <p>{card.caption}</p>
-                      </article>
-                    ))}
-                  </div>
+              <div className="architecture-flow-header">
+                <div>
+                  <p className="architecture-flow-eyebrow">System Architecture</p>
+                  <h3>标准五层系统架构</h3>
+                </div>
+                <div className="architecture-flow-focus">
+                  <span>当前聚焦</span>
+                  <strong>{activeArchitecturePanel.title}</strong>
                 </div>
               </div>
 
-              <div className="scene-platform-layer">
-                
-                <svg className="scene-connector-lines" viewBox="0 0 1000 760" preserveAspectRatio="none" aria-hidden="true">
-                  <defs>
-                    <marker
-                      id="scene-arrow"
-                      markerWidth="10"
-                      markerHeight="10"
-                      refX="8"
-                      refY="5"
-                      orient="auto"
-                      markerUnits="userSpaceOnUse"
-                    >
-                      <path
-                        d="M1 1 L8 5 L1 9"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.25"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </marker>
-                  </defs>
-                  <circle cx="604" cy="388" r="2.8" className="scene-connector-hub" />
-                  <path d="M604 388 C580 310 530 226 468 152" markerEnd="url(#scene-arrow)" />
-                  <path d="M604 388 C604 306 604 228 604 152" markerEnd="url(#scene-arrow)" />
-                  <path d="M604 388 C628 310 678 226 740 152" markerEnd="url(#scene-arrow)" />
-                  <path d="M604 388 C580 468 532 560 480 662" markerEnd="url(#scene-arrow)" />
-                  <path d="M604 388 C604 476 604 566 604 662" markerEnd="url(#scene-arrow)" />
-                  <path d="M604 388 C628 468 676 560 728 662" markerEnd="url(#scene-arrow)" />
-                </svg>
-
-                <div className="scene-platform-rail">
-                  {architecturePlatformLayers.map((layer, index) => {
-                    const isActive = (activeArchitecturePanel.relatedLayers as readonly string[]).includes(layer.id);
-                    return (
-                      <button
-                        key={layer.id}
-                        type="button"
-                        className={`scene-platform-pill scene-platform-pill-${index + 1} ${isActive ? "active" : ""}`}
-                        onClick={() => setActiveArchitecturePanelId(layer.panelId)}
-                      >
-                        {layer.title}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="scene-platform-center">
-                  
-                  <div className="scene-platform-stack">
-                    {architecturePlatformLayers.map((layer, index) => {
-                      const isActive = (activeArchitecturePanel.relatedLayers as readonly string[]).includes(layer.id);
-                      return (
-                        <button
-                          key={layer.id}
-                          type="button"
-                          className={`scene-diamond scene-diamond-${index + 1} ${isActive ? "active" : ""}`}
-                          onClick={() => setActiveArchitecturePanelId(layer.panelId)}
-                        >
-                          <strong>{layer.title}</strong>
-                          <span>{layer.caption}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              <div className="scene-knowledge-layer">
-                <div className="scene-layer-chip">知识层</div>
-
-                <div className="scene-knowledge-board">
-                  {architectureKnowledgeAssets.map((asset) => (
-                      <article
-                        key={asset.id}
-                        className="scene-knowledge-card"
-                      >
-                        <strong>{asset.title}</strong>
-                        <span>{asset.caption}</span>
-                      </article>
-                  ))}
-                </div>
+              <div className="architecture-flow-canvas">
+                <ReactFlow
+                  nodes={architectureFlowNodes}
+                  edges={architectureFlowEdges}
+                  nodeTypes={architectureFlowNodeTypes}
+                  fitView
+                  fitViewOptions={{ padding: 0.14, maxZoom: 1.04 }}
+                  minZoom={0.72}
+                  maxZoom={1.2}
+                  nodesDraggable={false}
+                  nodesConnectable={false}
+                  elementsSelectable={false}
+                  zoomOnDoubleClick={false}
+                  onNodeClick={(_, node) => {
+                    if (architectureExplorerPanels.some((panel) => panel.id === node.id)) {
+                      setActiveArchitecturePanelId(node.id);
+                    }
+                  }}
+                  onNodeMouseEnter={(_, node) => {
+                    if (architectureExplorerPanels.some((panel) => panel.id === node.id)) {
+                      setActiveArchitecturePanelId(node.id);
+                    }
+                  }}
+                  proOptions={{ hideAttribution: true }}
+                >
+                  <Background variant={BackgroundVariant.Dots} gap={24} size={1.1} color="#dbe4f4" />
+                </ReactFlow>
               </div>
             </div>
           </div>
