@@ -152,33 +152,23 @@ app.use('/copilotkit', async (req, res, next) => {
       forwardedHeaders["X-User-Id"] = forwardedUserId;
     }
 
-    const clientStateUrl = joinUrl(
+    const bootstrapUrl = joinUrl(
       AGENT_BASE_URL,
-      `/threads/${encodeURIComponent(threadId)}/client-state?agent=${encodeURIComponent(agentName)}`,
-    );
-    const messagesPageUrl = joinUrl(
-      AGENT_BASE_URL,
-      `/threads/${encodeURIComponent(threadId)}/messages?agent=${encodeURIComponent(agentName)}&limit=${THREAD_RESTORE_MESSAGE_LIMIT}`,
+      `/threads/${encodeURIComponent(threadId)}/bootstrap?agent=${encodeURIComponent(agentName)}&limit=${THREAD_RESTORE_MESSAGE_LIMIT}`,
     );
 
-    const [clientStateResponse, messagesResponse] = await Promise.all([
-      fetch(clientStateUrl, { headers: forwardedHeaders }),
-      fetch(messagesPageUrl, { headers: forwardedHeaders }),
-    ]);
-
-    if (!clientStateResponse.ok) {
+    const bootstrapResponse = await fetch(bootstrapUrl, { headers: forwardedHeaders });
+    if (!bootstrapResponse.ok) {
       return next();
     }
 
-    const payload = await clientStateResponse.json() as {
+    const payload = await bootstrapResponse.json() as {
       thread_exists?: boolean;
       agentState?: Record<string, unknown> | null;
+      messages?: unknown[];
     };
-    const messagesPayload = messagesResponse.ok
-      ? await messagesResponse.json() as { messages?: unknown[] }
-      : null;
-    const restoredMessages = Array.isArray(messagesPayload?.messages)
-      ? messagesPayload.messages
+    const restoredMessages = Array.isArray(payload?.messages)
+      ? payload.messages
       : [];
 
     res.setHeader("X-CopilotKit-Runtime-Version", COPILOTKIT_RUNTIME_VERSION);

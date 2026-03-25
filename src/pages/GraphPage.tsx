@@ -1,9 +1,7 @@
 import { lazy, Suspense } from "react";
 
 const GraphRAGVisualizer = lazy(() =>
-  import("../components/graphrag-viewer").then((module) => ({
-    default: module.GraphRAGVisualizer,
-  }))
+  import("../components/graphrag-viewer/components/GraphRAGVisualizer")
 );
 
 export function GraphPage() {

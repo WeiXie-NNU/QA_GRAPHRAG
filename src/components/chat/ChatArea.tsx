@@ -14,7 +14,7 @@ import {
 import { VirtualizedMessages } from "./VirtualizedMessages";
 import { useThreadHistory } from "./useThreadHistory";
 import { ModelSelector } from "./ModelSelector";
-import { useAgent } from "../../contexts";
+import { useAgent } from "../../contexts/AgentContext";
 import { CHAT_INSTRUCTIONS } from "../../lib/consts";
 import type { AgentType } from "../../lib/consts";
 import { saveThreadAgentState } from "../../services/threadService";
@@ -26,6 +26,7 @@ interface ChatAreaProps {
   agent: AgentType;
   threadId: string;
   userId: string;
+  persistedMessageCount: number;
   shouldLoadHistory: boolean;
 }
 
@@ -115,6 +116,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   agent,
   threadId,
   userId,
+  persistedMessageCount,
   shouldLoadHistory,
 }) => {
   const { state: agentState, running } = useAgent();
@@ -151,9 +153,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
     userId,
     enabled: shouldLoadHistory,
     anchorBeforeMessageId: historyAnchorMessageId,
+    persistedMessageCount,
     visibleMessageCount: restoredVisibleMessageCount,
   });
+  const isPerfObserveAvailable = import.meta.env.DEV;
   const [perfObserve, setPerfObserve] = useState<boolean>(() => {
+    if (!isPerfObserveAvailable) {
+      return false;
+    }
     try {
       return localStorage.getItem(PERF_OBSERVE_KEY) === "1";
     } catch {
@@ -162,6 +169,9 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   });
 
   const togglePerfObserve = useCallback(() => {
+    if (!isPerfObserveAvailable) {
+      return;
+    }
     setPerfObserve((prev) => {
       const next = !prev;
       try {
@@ -169,7 +179,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       } catch {}
       return next;
     });
-  }, []);
+  }, [isPerfObserveAvailable]);
 
   useEffect(() => {
     if (!agentState?.steps?.length) return;
@@ -215,24 +225,26 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       <header className="chat-header">
         <div className="chat-header-left">
           <ModelSelector />
-          <button
-            type="button"
-            onClick={togglePerfObserve}
-            title="临时性能观测开关（仅前端显示）"
-            style={{
-              marginLeft: 10,
-              height: 30,
-              padding: "0 10px",
-              borderRadius: 8,
-              border: "1px solid #cbd5e1",
-              background: perfObserve ? "#0f766e" : "#ffffff",
-              color: perfObserve ? "#ffffff" : "#334155",
-              fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
-            性能观测 {perfObserve ? "ON" : "OFF"}
-          </button>
+          {isPerfObserveAvailable ? (
+            <button
+              type="button"
+              onClick={togglePerfObserve}
+              title="临时性能观测开关（仅前端显示）"
+              style={{
+                marginLeft: 10,
+                height: 30,
+                padding: "0 10px",
+                borderRadius: 8,
+                border: "1px solid #cbd5e1",
+                background: perfObserve ? "#0f766e" : "#ffffff",
+                color: perfObserve ? "#ffffff" : "#334155",
+                fontSize: 12,
+                cursor: "pointer",
+              }}
+            >
+              性能观测 {perfObserve ? "ON" : "OFF"}
+            </button>
+          ) : null}
         </div>
       </header>
 

@@ -39,7 +39,7 @@
 }
 
 /* 标题栏 */
-.result-header {
+.graphrag-results-container .result-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -49,7 +49,7 @@
   transition: background 0.2s;
 }
 
-.result-header:hover {
+.graphrag-results-container .result-header:hover {
   background: #e9ecef;
 }
 
@@ -63,7 +63,7 @@
   font-size: 20px;
 }
 
-.result-title {
+.graphrag-results-container .result-title {
   font-weight: 600;
   color: #2c3e50;
 }
@@ -87,7 +87,7 @@
 }
 
 /* 内容区 */
-.result-content {
+.graphrag-results-container .result-content {
   padding: 16px;
   animation: slideDown 0.3s ease;
 }
@@ -111,7 +111,7 @@
   margin-bottom: 0;
 }
 
-.section-title {
+.graphrag-results-container .section-title {
   font-size: 14px;
   font-weight: 600;
   color: #495057;
@@ -150,17 +150,17 @@
   font-size: 13px;
 }
 
-.context-item {
+.graphrag-results-container .context-item {
   display: flex;
   gap: 8px;
   margin-bottom: 6px;
 }
 
-.context-item:last-child {
+.graphrag-results-container .context-item:last-child {
   margin-bottom: 0;
 }
 
-.context-key {
+.graphrag-results-container .context-key {
   font-weight: 600;
   color: #f57c00;
   min-width: 120px;
@@ -228,7 +228,7 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.paper-title {
+.graphrag-results-container .paper-title {
   font-weight: 600;
   color: #2c3e50;
   margin-bottom: 8px;

@@ -25,6 +25,11 @@ def _make_stable_message_id(prefix: str, *parts: str) -> str:
     return f"{prefix}:{digest}"
 
 
+def _normalize_message_preview(content: str, limit: int = 160) -> str:
+    normalized = " ".join(str(content or "").replace("\r", " ").replace("\n", " ").split())
+    return normalized[:limit]
+
+
 def normalize_visible_messages(raw_messages: Sequence[Any]) -> List[Dict[str, str]]:
     normalized: List[Dict[str, str]] = []
     for index, msg in enumerate(raw_messages):
@@ -92,6 +97,71 @@ async def get_thread_message_count(db_conn: Any, thread_id: str) -> int:
     return int(row[0] or 0) if row else 0
 
 
+async def sync_thread_message_summary(
+    db_conn: Any,
+    thread_id: str,
+    *,
+    do_commit: bool = False,
+) -> Dict[str, Any]:
+    async with db_conn.execute(
+        """
+        SELECT COUNT(1), MAX(updated_at)
+        FROM thread_messages
+        WHERE thread_id = ?
+        """,
+        (thread_id,),
+    ) as cursor:
+        count_row = await cursor.fetchone()
+
+    async with db_conn.execute(
+        """
+        SELECT content, updated_at
+        FROM thread_messages
+        WHERE thread_id = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (thread_id,),
+    ) as cursor:
+        latest_row = await cursor.fetchone()
+
+    message_count = int(count_row[0] or 0) if count_row else 0
+    last_message_at = str(latest_row[1] or "") if latest_row else ""
+    last_message_preview = _normalize_message_preview(latest_row[0]) if latest_row else ""
+
+    await db_conn.execute(
+        """
+        UPDATE thread_metadata
+        SET
+            message_count = ?,
+            last_message_at = ?,
+            last_message_preview = ?,
+            updated_at = CASE
+                WHEN ? != '' THEN ?
+                ELSE updated_at
+            END
+        WHERE thread_id = ?
+        """,
+        (
+            message_count,
+            last_message_at or None,
+            last_message_preview or None,
+            last_message_at,
+            last_message_at,
+            thread_id,
+        ),
+    )
+
+    if do_commit:
+        await db_conn.commit()
+
+    return {
+        "message_count": message_count,
+        "last_message_at": last_message_at,
+        "last_message_preview": last_message_preview,
+    }
+
+
 async def fetch_all_thread_messages(db_conn: Any, thread_id: str) -> List[Dict[str, str]]:
     rows: List[Any] = []
     async with db_conn.execute(
@@ -121,6 +191,7 @@ async def fetch_thread_messages_page(
     before_id: Optional[int] = None,
     before_message_id: Optional[str] = None,
     limit: int = 40,
+    total_count: Optional[int] = None,
 ) -> Dict[str, Any]:
     effective_before_id = before_id
     if effective_before_id is None and before_message_id:
@@ -172,13 +243,13 @@ async def fetch_thread_messages_page(
         ) as cursor:
             has_more = bool(await cursor.fetchone())
 
-    total_count = await get_thread_message_count(db_conn, thread_id)
+    resolved_total_count = int(total_count or 0) if total_count is not None else 0
 
     return {
         "messages": messages,
         "has_more": has_more,
         "next_before_id": next_before_id,
-        "count": total_count,
+        "count": resolved_total_count,
     }
 
 
@@ -228,6 +299,7 @@ async def backfill_thread_messages(
         inserted += 1
 
     if inserted > 0:
+        await sync_thread_message_summary(db_conn, thread_id)
         await db_conn.commit()
     return inserted
 
@@ -260,7 +332,10 @@ async def append_thread_turn(
                 agent TEXT NOT NULL DEFAULT 'test',
                 user_id TEXT NOT NULL DEFAULT 'demo',
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                message_count INTEGER NOT NULL DEFAULT 0,
+                last_message_at TEXT,
+                last_message_preview TEXT
             )
             """
         )
@@ -270,6 +345,18 @@ async def append_thread_turn(
         if "user_id" not in column_names:
             await db_conn.execute(
                 "ALTER TABLE thread_metadata ADD COLUMN user_id TEXT NOT NULL DEFAULT 'demo'"
+            )
+        if "message_count" not in column_names:
+            await db_conn.execute(
+                "ALTER TABLE thread_metadata ADD COLUMN message_count INTEGER NOT NULL DEFAULT 0"
+            )
+        if "last_message_at" not in column_names:
+            await db_conn.execute(
+                "ALTER TABLE thread_metadata ADD COLUMN last_message_at TEXT"
+            )
+        if "last_message_preview" not in column_names:
+            await db_conn.execute(
+                "ALTER TABLE thread_metadata ADD COLUMN last_message_preview TEXT"
             )
         await setup_thread_message_tables(db_conn)
 
@@ -333,4 +420,5 @@ async def append_thread_turn(
             "UPDATE thread_metadata SET updated_at = ? WHERE thread_id = ?",
             (now, thread_id),
         )
+        await sync_thread_message_summary(db_conn, thread_id)
         await db_conn.commit()

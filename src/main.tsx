@@ -4,7 +4,7 @@ import { QueryClientProvider, useQueryClient } from '@tanstack/react-query'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import './index.css'
 import { queryClient } from './lib/queryClient'
-import { AuthProvider, useAuth } from './contexts'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { createNewThreadId } from './services/threadService'
 
 const App = lazy(() => import('./App'))

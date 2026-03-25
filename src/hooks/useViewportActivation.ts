@@ -26,6 +26,12 @@ export function useViewportActivation<T extends Element>({
   }, []);
 
   useEffect(() => {
+    if (enabled && !once) {
+      setIsActive(false);
+    }
+  }, [enabled, node, once]);
+
+  useEffect(() => {
     if (!enabled) {
       setIsActive(true);
       return;
@@ -47,6 +53,11 @@ export function useViewportActivation<T extends Element>({
     const observer = new IntersectionObserver(
       (entries) => {
         const nextVisible = entries.some((entry) => entry.isIntersecting);
+        if (!once) {
+          setIsActive(nextVisible);
+          return;
+        }
+
         if (!nextVisible) {
           return;
         }

@@ -1,18 +1,11 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { CopilotKit, useCopilotChatInternal } from "@copilotkit/react-core";
-import { randomUUID } from "@copilotkit/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import "@copilotkit/react-ui/styles.css";
 import "./App.css";
 
-import { ChatComposer } from "./components/chat/ChatComposer";
-import { HITLInterruptLayer } from "./components/chat/HITLInterruptLayer";
-import { ModelSelector } from "./components/chat/ModelSelector";
-import { WelcomeScreen } from "./components/chat/WelcomeScreen";
 import { Sidebar } from "./components/sidebar";
-import { AgentProvider, DrawerProvider, useAuth, useDrawer } from "./contexts";
-import { CHAT_SUGGESTIONS, RUNTIME_URL } from "./lib/consts";
+import { useAuth } from "./contexts/AuthContext";
+import { DrawerProvider, useDrawer } from "./contexts/DrawerContext";
 import type { AgentType } from "./lib/consts";
 import {
   addThread,
@@ -30,9 +23,10 @@ import {
   useThreadList,
 } from "./hooks/useThreadList";
 
-const LazyChatArea = lazy(() =>
-  import("./components/chat/ChatArea").then((module) => ({
-    default: module.ChatArea,
+const loadChatRuntimePane = () => import("./components/chat/ChatRuntimePane");
+const LazyChatRuntimePane = lazy(() =>
+  loadChatRuntimePane().then((module) => ({
+    default: module.default,
   }))
 );
 const LazyRightPanel = lazy(() =>
@@ -76,11 +70,16 @@ function AppContent() {
     [threadId, threads],
   );
   const routeState = location.state as { isNewThread?: boolean } | null;
+  const shouldProbeRemoteThreadState =
+    Boolean(threadId) &&
+    !pendingNewThreadId &&
+    !threadInList &&
+    routeState?.isNewThread !== true;
 
   const clientStateQuery = useQuery({
     queryKey: ["thread-client-state", currentUserId, agent, threadId],
     queryFn: () => getThreadClientState(threadId, agent),
-    enabled: Boolean(threadId),
+    enabled: shouldProbeRemoteThreadState,
     staleTime: 30_000,
   });
   const hasMeaningfulAgentState =
@@ -97,7 +96,7 @@ function AppContent() {
   const isRouteMarkedNewThread =
     routeState?.isNewThread === true &&
     !hasPersistedConversationData;
-  const threadExists = hasPersistedConversationData;
+  const threadExists = Boolean(threadInList) || hasPersistedConversationData;
   const isNewThread =
     pendingNewThreadId === threadId ||
     isRouteMarkedNewThread ||
@@ -186,6 +185,25 @@ function AppContent() {
     setSidebarOpen((prev) => !prev);
   }, []);
 
+  useEffect(() => {
+    const preloadRuntime = () => {
+      void loadChatRuntimePane();
+    };
+
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+
+    if (typeof idleWindow.requestIdleCallback === "function") {
+      const handle = idleWindow.requestIdleCallback(preloadRuntime, { timeout: 1200 });
+      return () => idleWindow.cancelIdleCallback?.(handle);
+    }
+
+    const timer = window.setTimeout(preloadRuntime, 180);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   if (!currentUser) {
     return null;
   }
@@ -212,29 +230,17 @@ function AppContent() {
       />
 
       <main className="main-content">
-        <CopilotKit
-          key={`${currentUserId}-${agent}-${threadId}`}
-          runtimeUrl={RUNTIME_URL}
-          agent={agent}
-          threadId={threadId}
-        >
-          <AgentProvider agentName={agent}>
-            <HITLInterruptLayer />
-            {isNewThread ? (
-              <NewThreadStage agent={agent} onSend={handleFirstMessage} />
-            ) : (
-              <Suspense fallback={<ChatAreaFallback />}>
-                <LazyChatArea
-                  agent={agent}
-                  threadId={threadId}
-                  userId={currentUserId}
-                  shouldLoadHistory={threadExists && !isNewThread}
-                  key={`${currentUserId}:${threadId}:${threadExists ? "known" : "unknown"}`}
-                />
-              </Suspense>
-            )}
-          </AgentProvider>
-        </CopilotKit>
+        <Suspense fallback={<ChatRuntimeFallback />}>
+          <LazyChatRuntimePane
+            agent={agent}
+            threadId={threadId}
+            userId={currentUserId}
+            isNewThread={isNewThread}
+            threadExists={threadExists}
+            persistedMessageCount={Number(clientStateQuery.data?.message_count || 0)}
+            onFirstMessage={handleFirstMessage}
+          />
+        </Suspense>
       </main>
 
       <RightPanelContent />
@@ -254,126 +260,7 @@ function RightPanelContent() {
   );
 }
 
-function NewThreadStage({
-  agent,
-  onSend,
-}: {
-  agent: AgentType;
-  onSend: (message: string) => Promise<void>;
-}) {
-  const suggestions = CHAT_SUGGESTIONS[agent] || [];
-  const [draft, setDraft] = useState("");
-  const [pendingFirstMessage, setPendingFirstMessage] = useState<{ id: string; text: string } | null>(null);
-  const submittedFirstMessageIdRef = useRef<string | null>(null);
-  const {
-    messages,
-    sendMessage,
-    isLoading,
-    stopGeneration,
-    interrupt,
-    agent: connectedAgent,
-  } = useCopilotChatInternal();
-  const hasPendingInterrupt = Boolean(interrupt);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const textarea = document.querySelector(".copilotKitInput textarea") as HTMLTextAreaElement | null;
-      textarea?.focus();
-    }, 100);
-
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    if (!pendingFirstMessage) {
-      return;
-    }
-
-    const userMessageAppeared = (messages as any[] | undefined)?.some(
-      (message) =>
-        message?.role === "user" &&
-        String(message?.id ?? "") === pendingFirstMessage.id
-    );
-
-    if (!userMessageAppeared) {
-      return;
-    }
-
-    if (submittedFirstMessageIdRef.current === pendingFirstMessage.id) {
-      return;
-    }
-    submittedFirstMessageIdRef.current = pendingFirstMessage.id;
-
-    void onSend(pendingFirstMessage.text).catch((error) => {
-      console.error("创建首条消息线程失败:", error);
-    });
-    setPendingFirstMessage(null);
-  }, [messages, onSend, pendingFirstMessage]);
-
-  const handleSend = useCallback(async (message: string) => {
-    const trimmed = message.trim();
-    if (!trimmed || !connectedAgent || pendingFirstMessage) {
-      return;
-    }
-
-    const firstMessageId = randomUUID();
-    submittedFirstMessageIdRef.current = null;
-    setPendingFirstMessage({ id: firstMessageId, text: trimmed });
-
-    void sendMessage({
-      id: firstMessageId,
-      role: "user",
-      content: trimmed,
-    }).catch((error) => {
-      setPendingFirstMessage((current) =>
-        current?.id === firstMessageId ? null : current
-      );
-      setDraft(trimmed);
-      console.error("发送首条消息失败:", error);
-    });
-  }, [connectedAgent, pendingFirstMessage, sendMessage]);
-
-  return (
-    <>
-      <header className="chat-header">
-        <div className="chat-header-left">
-          <ModelSelector />
-        </div>
-      </header>
-
-      <div className="chat-container with-welcome">
-        <div className="new-thread-stage-layout">
-          <WelcomeScreen visible={true} variant="inline" />
-          <div className="new-thread-stage-composer">
-            <ChatComposer
-              disabled={!connectedAgent || Boolean(pendingFirstMessage) || hasPendingInterrupt}
-              inProgress={isLoading}
-              value={draft}
-              onValueChange={setDraft}
-              onSend={handleSend}
-              onStop={stopGeneration}
-              placeholder={hasPendingInterrupt ? "请先完成当前人工审核" : "询问任何问题"}
-            />
-          </div>
-          {suggestions.length > 0 && (
-            <div className="new-thread-stage-suggestions">
-              <div className="suggestions-grid">
-                {suggestions.map((suggestion, index) => (
-                  <button key={index} className="suggestion-item" onClick={() => setDraft(suggestion)}>
-                    <span className="suggestion-icon">💡</span>
-                    <span className="suggestion-text">{suggestion}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </>
-  );
-}
-
-function ChatAreaFallback() {
+function ChatRuntimeFallback() {
   return (
     <div className="chat-loading-shell" aria-hidden="true">
       <div className="chat-loading-header" />

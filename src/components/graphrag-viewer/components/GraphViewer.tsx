@@ -3,14 +3,8 @@
  * 移植自 graphrag-visualizer 项目
  */
 
-import React, { useState, useCallback, useRef, useMemo } from "react";
-import ForceGraph2D from "react-force-graph-2d";
-import ForceGraph3D from "react-force-graph-3d";
-import Fuse from "fuse.js";
-import * as THREE from "three";
-// Three.js r169 使用 examples/jsm 路径
-import { CSS2DRenderer, CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js";
-import SpriteText from "three-spritetext";
+import React, { Suspense, lazy, useState, useCallback, useEffect, useRef } from "react";
+import type Fuse from "fuse.js";
 import type { CustomGraphData, CustomNode, CustomLink } from "../models/types";
 import "./GraphViewer.css";
 
@@ -39,7 +33,14 @@ interface GraphViewerProps {
   onIncludeCovariatesChange: (value: boolean) => void;
 }
 
+const loadGraphCanvas2D = () => import("./GraphCanvas2D");
+const loadGraphCanvas3D = () => import("./GraphCanvas3D");
+
+const LazyGraphCanvas2D = lazy(() => loadGraphCanvas2D());
+const LazyGraphCanvas3D = lazy(() => loadGraphCanvas3D());
+
 const NODE_R = 8;
+const loadFuseModule = () => import("fuse.js").then((module) => module.default);
 
 // ============================================================
 // 主组件
@@ -84,27 +85,28 @@ const GraphViewer: React.FC<GraphViewerProps> = ({
   const [showHighlight, setShowHighlight] = useState(true);
 
   const graphRef = useRef<any>();
-  const extraRenderers = [new CSS2DRenderer() as any];
+  const fuseRef = useRef<Fuse<CustomNode | CustomLink> | null>(null);
 
   const nodeCount = data.nodes.length;
   const linkCount = data.links.length;
 
-  // ============ Fuse 搜索 ============
-  const fuse = useMemo(
-    () =>
-      new Fuse([...data.nodes, ...data.links], {
-        keys: ["uuid", "id", "name", "type", "description", "source", "target", "title", "summary"],
-        threshold: 0.3,
-      }),
-    [data]
-  );
+  useEffect(() => {
+    fuseRef.current = null;
+  }, [data]);
 
-  // ============ 背景颜色 ============
-  const getBackgroundColor = () => (darkMode ? "#0a0a0f" : "#ffffff");
+  const getSearchIndex = useCallback(async () => {
+    if (fuseRef.current) {
+      return fuseRef.current;
+    }
 
-  // ============ 链接颜色 ============
-  const getLinkColor = (_link: CustomLink) => (darkMode ? "gray" : "lightgray");
-  const get3DLinkColor = (_link: CustomLink) => (darkMode ? "lightgray" : "gray");
+    const FuseModule = await loadFuseModule();
+    const nextFuse = new FuseModule([...data.nodes, ...data.links], {
+      keys: ["uuid", "id", "name", "type", "description", "source", "target", "title", "summary"],
+      threshold: 0.3,
+    });
+    fuseRef.current = nextFuse;
+    return nextFuse;
+  }, [data]);
 
   // ============ 高亮圆环 ============
   const paintRing = useCallback(
@@ -199,11 +201,13 @@ const GraphViewer: React.FC<GraphViewerProps> = ({
   }, []);
 
   // ============ 搜索 ============
-  const handleSearch = useCallback(() => {
+  const handleSearch = useCallback(async () => {
     if (!searchTerm.trim()) {
       setSearchResults([]);
       return;
     }
+
+    const fuse = await getSearchIndex();
     const results = fuse.search(searchTerm).map((r) => r.item);
     const nodeResults = results.filter((item): item is CustomNode => "neighbors" in item);
     const linkResults = results.filter(
@@ -211,7 +215,7 @@ const GraphViewer: React.FC<GraphViewerProps> = ({
     );
     setSearchResults([...nodeResults, ...linkResults]);
     setRightDrawerOpen(true);
-  }, [searchTerm, fuse]);
+  }, [getSearchIndex, searchTerm]);
 
   const handleFocusButtonClick = (node: CustomNode) => {
     const newHighlightNodes = new Set<CustomNode>();
@@ -235,6 +239,19 @@ const GraphViewer: React.FC<GraphViewerProps> = ({
 
     setRightDrawerOpen(false);
   };
+
+  const warmupAlternateGraph = useCallback(() => {
+    if (graphType === "2d") {
+      void loadGraphCanvas3D();
+      return;
+    }
+
+    void loadGraphCanvas2D();
+  }, [graphType]);
+
+  const warmupSearchEngine = useCallback(() => {
+    void getSearchIndex();
+  }, [getSearchIndex]);
 
   // ============ 渲染函数 ============
   const renderNodeLabel = (node: CustomNode, ctx: CanvasRenderingContext2D) => {
@@ -275,32 +292,25 @@ const GraphViewer: React.FC<GraphViewerProps> = ({
     ctx.fillText(label, node.x!, node.y!);
   };
 
-  const nodeThreeObject = (node: CustomNode) => {
-    if (!showLabels) return new THREE.Object3D();
-
-    try {
-      const nodeEl = document.createElement("div");
-      nodeEl.textContent = node.name || node.id;
-      nodeEl.style.color = (node as any).color || "#ffffff";
-      nodeEl.style.padding = "2px 4px";
-      nodeEl.style.borderRadius = "4px";
-      nodeEl.style.fontSize = "10px";
-      nodeEl.className = "node-label";
-      return new CSS2DObject(nodeEl);
-    } catch {
-      return new THREE.Object3D();
-    }
-  };
-
   // ============ 渲染 ============
   return (
     <div className={`grv-viewer ${isFullscreen ? "grv-fullscreen" : ""} ${darkMode ? "grv-dark" : ""}`}>
       {/* 控制面板 */}
       <div className="grv-controls">
-        <button className="grv-search-btn" onClick={() => setRightDrawerOpen(true)}>
+        <button
+          className="grv-search-btn"
+          onClick={() => setRightDrawerOpen(true)}
+          onMouseEnter={warmupSearchEngine}
+          onFocus={warmupSearchEngine}
+        >
           🔍 搜索
         </button>
-        <button className="grv-btn-icon" onClick={onToggleGraphType}>
+        <button
+          className="grv-btn-icon"
+          onClick={onToggleGraphType}
+          onMouseEnter={warmupAlternateGraph}
+          onFocus={warmupAlternateGraph}
+        >
           🌐 {graphType === "2d" ? "3D" : "2D"}
         </button>
         <button className="grv-btn-icon" onClick={onToggleFullscreen}>
@@ -336,9 +346,14 @@ const GraphViewer: React.FC<GraphViewerProps> = ({
               placeholder="搜索节点或关系..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+              onFocus={warmupSearchEngine}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  void handleSearch();
+                }
+              }}
             />
-            <button onClick={handleSearch}>搜索</button>
+            <button onClick={() => void handleSearch()}>搜索</button>
             <button onClick={() => setRightDrawerOpen(false)}>✕</button>
           </div>
           <div className="grv-search-results">
@@ -431,79 +446,40 @@ const GraphViewer: React.FC<GraphViewerProps> = ({
       )}
 
       {/* 图谱 */}
-      {graphType === "2d" ? (
-        <ForceGraph2D
-          ref={graphRef}
-          graphData={data}
-          nodeAutoColorBy="type"
-          nodeRelSize={NODE_R}
-          autoPauseRedraw={false}
-          linkWidth={(link) => (showHighlight && highlightLinks.has(link as CustomLink) ? 5 : 1)}
-          linkDirectionalParticles={showHighlight ? 4 : 0}
-          linkDirectionalParticleWidth={(link) => (showHighlight && highlightLinks.has(link as CustomLink) ? 4 : 0)}
-          nodeCanvasObjectMode={(node) => (showHighlight && highlightNodes.has(node as CustomNode) ? "before" : showLabels ? "after" : undefined)}
-          nodeCanvasObject={(node, ctx) => {
-            if (showHighlight && highlightNodes.has(node as CustomNode)) {
-              paintRing(node as CustomNode, ctx);
-            }
-            if (showLabels) {
-              renderNodeLabel(node as CustomNode, ctx);
-            }
-          }}
-          linkCanvasObjectMode={() => (showLinkLabels ? "after" : undefined)}
-          linkCanvasObject={(link, ctx) => {
-            if (!showLinkLabels) return;
-            const typedLink = link as CustomLink;
-            const source = typedLink.source as CustomNode;
-            const target = typedLink.target as CustomNode;
-            if (!source.x || !target.x) return;
-            ctx.font = "3px Sans-Serif";
-            ctx.fillStyle = darkMode ? "lightgray" : "darkgray";
-            ctx.fillText(typedLink.type || "", (source.x + target.x) / 2, (source.y! + target.y!) / 2);
-          }}
-          onNodeHover={showHighlight ? handleNodeHover : undefined}
-          onLinkHover={showHighlight ? handleLinkHover : undefined}
-          onNodeClick={handleNodeClick}
-          onLinkClick={handleLinkClick}
-          backgroundColor={getBackgroundColor()}
-          linkColor={getLinkColor}
-        />
-      ) : (
-        <ForceGraph3D
-          ref={graphRef}
-          extraRenderers={extraRenderers}
-          graphData={data}
-          nodeAutoColorBy="type"
-          nodeRelSize={NODE_R}
-          linkWidth={(link) => (showHighlight && highlightLinks.has(link as CustomLink) ? 5 : 1)}
-          linkDirectionalParticles={showHighlight ? 4 : 0}
-          linkDirectionalParticleWidth={(link) => (showHighlight && highlightLinks.has(link as CustomLink) ? 4 : 0)}
-          nodeThreeObject={nodeThreeObject}
-          nodeThreeObjectExtend={true}
-          onNodeHover={showHighlight ? handleNodeHover : undefined}
-          onLinkHover={showHighlight ? handleLinkHover : undefined}
-          onNodeClick={handleNodeClick}
-          onLinkClick={handleLinkClick}
-          backgroundColor={getBackgroundColor()}
-          linkColor={get3DLinkColor}
-          linkThreeObjectExtend={true}
-          linkThreeObject={(link) => {
-            if (!showLinkLabels) return new THREE.Object3D();
-            const sprite = new SpriteText(`${(link as CustomLink).type}`);
-            sprite.color = "lightgrey";
-            sprite.textHeight = 1.5;
-            return sprite;
-          }}
-          linkPositionUpdate={(sprite, { start, end }) => {
-            if (!showLinkLabels) return;
-            Object.assign(sprite.position, {
-              x: start.x + (end.x - start.x) / 2,
-              y: start.y + (end.y - start.y) / 2,
-              z: start.z + (end.z - start.z) / 2,
-            });
-          }}
-        />
-      )}
+      <Suspense fallback={<div className="grv-loading"><div className="grv-spinner"></div><span>图谱引擎加载中...</span></div>}>
+        {graphType === "2d" ? (
+          <LazyGraphCanvas2D
+            data={data}
+            graphRef={graphRef}
+            darkMode={darkMode}
+            showHighlight={showHighlight}
+            showLabels={showLabels}
+            showLinkLabels={showLinkLabels}
+            highlightNodes={highlightNodes}
+            highlightLinks={highlightLinks}
+            onNodeHover={handleNodeHover}
+            onLinkHover={handleLinkHover}
+            onNodeClick={handleNodeClick}
+            onLinkClick={handleLinkClick}
+            paintRing={paintRing}
+            renderNodeLabel={renderNodeLabel}
+          />
+        ) : (
+          <LazyGraphCanvas3D
+            data={data}
+            graphRef={graphRef}
+            darkMode={darkMode}
+            showHighlight={showHighlight}
+            showLabels={showLabels}
+            showLinkLabels={showLinkLabels}
+            highlightLinks={highlightLinks}
+            onNodeHover={handleNodeHover}
+            onLinkHover={handleLinkHover}
+            onNodeClick={handleNodeClick}
+            onLinkClick={handleLinkClick}
+          />
+        )}
+      </Suspense>
     </div>
   );
 };
