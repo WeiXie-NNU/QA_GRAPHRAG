@@ -50,6 +50,13 @@ body {
 
 /* 主布局容器 */
 .app-layout {
+  --copilot-kit-primary-color: #2563eb;
+  --copilot-kit-primary-light: #3b82f6;
+  --copilot-kit-primary-dark: #1d4ed8;
+  --copilot-kit-contrast-color: #ffffff;
+  --copilot-kit-secondary-color: #f8fafc;
+  --copilot-kit-background-color: #ffffff;
+  --copilot-kit-separator-color: #e2e8f0;
   display: flex;
   height: 100vh;
   color: var(--text-primary);
@@ -704,18 +711,6 @@ body {
   color: #334155;
 }
 
-/* 响应式布局 */
-@media (max-width: 640px) {
-  .suggestions-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .new-thread-stage-layout {
-    padding: 36px 16px 24px;
-    gap: 20px;
-  }
-}
-
 /* CopilotKit 核心容器样式 */
 .chat-container > .copilotKitChat {
   flex: 1;
@@ -896,11 +891,6 @@ body {
   .copilotKitMessagesList {
     max-width: 100% !important;
     transform: none !important;
-  }
-
-  .copilotKitInterruptFooter {
-    width: 100%;
-    transform: none;
   }
 
   .user-menu-panel,
@@ -1236,12 +1226,6 @@ a[href*="copilotkit"],
   line-height: 1.8 !important;
   width: 100% !important;
   font-size: 0.95rem !important;
-}
-
-/* 隐藏助手头像 */
-.copilotKitAssistantMessage img,
-.copilotKitAssistantMessage svg:first-child {
-  display: none !important;
 }
 
 .copilotKitUserMessage {
@@ -1777,6 +1761,15 @@ a[href*="copilotkit"],
 }
 
 @media (max-width: 640px) {
+  .suggestions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .new-thread-stage-layout {
+    padding: 36px 16px 24px;
+    gap: 20px;
+  }
+
   .copilotKitInterruptFooter {
     padding: 0 16px 16px;
   }

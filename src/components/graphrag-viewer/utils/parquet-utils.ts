@@ -3,9 +3,18 @@
  * 移植自 graphrag-visualizer 项目
  */
 
-import { parquetRead } from "hyparquet";
 import type { ParquetReadOptions } from "hyparquet";
 import type { FileSchema } from "../models/types";
+
+let parquetReadPromise: Promise<typeof import("hyparquet")["parquetRead"]> | null = null;
+
+const loadParquetRead = () => {
+  if (!parquetReadPromise) {
+    parquetReadPromise = import("hyparquet").then((module) => module.parquetRead);
+  }
+
+  return parquetReadPromise;
+};
 
 /**
  * 异步缓冲区类，用于 hyparquet 读取
@@ -43,6 +52,7 @@ export const readParquetFile = async (
   schema?: FileSchema
 ): Promise<any[]> => {
   try {
+    const parquetRead = await loadParquetRead();
     const arrayBuffer = await file.arrayBuffer();
     const asyncBuffer = new AsyncBuffer(arrayBuffer);
 

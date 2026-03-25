@@ -76,8 +76,8 @@ export function MapView({ address, latitude, longitude, zoom = 15 }: MapViewProp
 
   if (loading) {
     return (
-      <div className="map-container map-loading">
-        <div className="map-spinner"></div>
+      <div className="single-map-view single-map-view-loading">
+        <div className="single-map-view-spinner"></div>
         <p>正在加载地图...</p>
       </div>
     );
@@ -85,10 +85,10 @@ export function MapView({ address, latitude, longitude, zoom = 15 }: MapViewProp
 
   if (error) {
     return (
-      <div className="map-container map-error">
+      <div className="single-map-view single-map-view-error">
         <span>🗺️</span>
         <p>{error}</p>
-        <p className="map-address">{address}</p>
+        <p className="single-map-view-address">{address}</p>
       </div>
     );
   }
@@ -163,18 +163,18 @@ export function MapView({ address, latitude, longitude, zoom = 15 }: MapViewProp
   `;
 
   return (
-    <div className="map-container">
-      <div className="map-header">
-        <span className="map-icon">📍</span>
-        <span className="map-title">{address}</span>
+    <div className="single-map-view">
+      <div className="single-map-view-header">
+        <span className="single-map-view-icon">📍</span>
+        <span className="single-map-view-title">{address}</span>
       </div>
       <iframe
-        className="map-iframe"
+        className="single-map-view-iframe"
         srcDoc={generateMapHtml()}
         title={`Map of ${address}`}
         loading="lazy"
       />
-      <div className="map-coords">
+      <div className="single-map-view-coords">
         坐标: {coords.lat != null ? coords.lat.toFixed(6) : 'N/A'}, {coords.lon != null ? coords.lon.toFixed(6) : 'N/A'}
       </div>
     </div>

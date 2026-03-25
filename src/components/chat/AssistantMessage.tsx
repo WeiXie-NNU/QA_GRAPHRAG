@@ -11,9 +11,11 @@
  */
 
 import React, { Suspense, lazy, memo, useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { ProgressDisplay, type ProgressData } from "../progress";
 import type { EvidenceItem } from "../evidence";
-import { useAgent, useDrawer } from "../../contexts";
+import { useAgent } from "../../contexts/AgentContext";
+import { useDrawer } from "../../contexts/DrawerContext";
 import { useViewportActivation } from "../../hooks/useViewportActivation";
 import {
   parseAgentState,
@@ -22,11 +24,20 @@ import {
   removeAgentDataMarker,
 } from "../../lib/utils";
 import { getGeoDataById } from "../../services/threadService";
-import type { GraphRAGResultSummary, GeoPoint } from "../../lib/types";
+import type { GraphRAGResultSummary } from "../../lib/types";
 import "./AssistantMessage.css";
 
+let geoVisualizationModulePromise: Promise<typeof import("../geo")> | null = null;
+
+function preloadGeoVisualizationModule(): Promise<typeof import("../geo")> {
+  if (!geoVisualizationModulePromise) {
+    geoVisualizationModulePromise = import("../geo");
+  }
+  return geoVisualizationModulePromise;
+}
+
 const LazyGeoVisualization = lazy(() =>
-  import("../geo").then((module) => ({ default: module.GeoVisualization }))
+  preloadGeoVisualizationModule().then((module) => ({ default: module.GeoVisualization }))
 );
 const LazyMarkdownMessage = lazy(() => import("./MarkdownMessage"));
 const LazyEvidenceChain = lazy(() =>
@@ -107,6 +118,22 @@ interface AssistantMessageBaseProps extends AssistantMessageProps {
   runtimeRunning?: boolean;
 }
 
+function renderGeoPlaceholder(title: string, hint?: string): React.ReactNode {
+  return (
+    <div className="geo-shell" role="status" aria-live="polite">
+      <div className="geo-shell-canvas">
+        <div className="geo-shell-badge">地图预览</div>
+        <div className="geo-shell-grid" aria-hidden="true" />
+        <div className="geo-shell-center">
+          <div className="geo-shell-spinner" aria-hidden="true" />
+          <p className="geo-shell-title">{title}</p>
+          {hint ? <p className="geo-shell-hint">{hint}</p> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ============================================================
 // 主组件
 // ============================================================
@@ -143,47 +170,6 @@ const AssistantMessageBase: React.FC<AssistantMessageBaseProps> = ({
   // 解析消息中的 Agent 数据 ID
   // 格式: <!-- AGENT_DATA:local_id:global_id:geo_data_id -->
   const agentDataIds = useMemo(() => parseAgentDataIds(content), [content]);
-
-  // 存储从 API 获取的 geo_points
-  const [messageGeoPoints, setMessageGeoPoints] = useState<GeoPoint[] | null>(null);
-  const [isLoadingGeoData, setIsLoadingGeoData] = useState(false);
-  const [loadedGeoDataId, setLoadedGeoDataId] = useState<string | null>(null);
-
-  useEffect(() => {
-    setMessageGeoPoints(null);
-    setIsLoadingGeoData(false);
-    setLoadedGeoDataId(null);
-  }, [agentDataIds?.geoDataId]);
-
-  // 当消息包含 geoDataId 时，从 API 获取 geo_points
-  useEffect(() => {
-    const geoDataId = agentDataIds?.geoDataId;
-    if (!geoDataId || isLoading || !shouldActivateRichContent || loadedGeoDataId === geoDataId) {
-      return;
-    }
-
-    let canceled = false;
-    setIsLoadingGeoData(true);
-    getGeoDataById(geoDataId)
-      .then((data) => {
-        if (canceled) return;
-        setMessageGeoPoints(data?.geo_points || []);
-        setLoadedGeoDataId(geoDataId);
-      })
-      .catch((err) => {
-        if (canceled) return;
-        console.error("获取地图数据失败:", err);
-      })
-      .finally(() => {
-        if (!canceled) {
-          setIsLoadingGeoData(false);
-        }
-      });
-
-    return () => {
-      canceled = true;
-    };
-  }, [agentDataIds?.geoDataId, isLoading, loadedGeoDataId, shouldActivateRichContent]);
 
   // 移除标记后的纯文本内容
   const textContent = useMemo(
@@ -223,12 +209,62 @@ const AssistantMessageBase: React.FC<AssistantMessageBaseProps> = ({
   // - 实时加载中 (isLoading=true)：不显示地图（geo_points 不再通过状态同步以减少 payload）
   // - 已完成消息 (isLoading=false)：从 API 获取该消息绑定的 geo_points 并显示
   // 注意：contextState?.geo_points 在新架构下始终为 undefined
-  const geoPointsToDisplay = isStreaming ? undefined : messageGeoPoints;
+  const {
+    data: geoDataRecord,
+    isFetching: isLoadingGeoData,
+  } = useQuery({
+    queryKey: ["thread-geo-data", agentDataIds?.geoDataId ?? ""],
+    queryFn: () => getGeoDataById(agentDataIds!.geoDataId!),
+    enabled:
+      !!agentDataIds?.geoDataId &&
+      !isStreaming &&
+      !isLoading,
+    staleTime: 30 * 60_000,
+    gcTime: 60 * 60_000,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
+  });
+  const geoPointsToDisplay = isStreaming ? undefined : geoDataRecord?.geo_points;
   const hasGeoPoints = geoPointsToDisplay && geoPointsToDisplay.length > 0;
   const hasGeoDataId = !!agentDataIds?.geoDataId;
+  const hasGeoVisualizationSlot = !isStreaming && hasGeoDataId;
+  const hasRenderableGeoSection = hasGeoVisualizationSlot;
   const shouldDelayRichText = !isStreaming && textContent.length >= LONG_MESSAGE_THRESHOLD;
   const shouldUsePlainText = isStreaming || !enableRichText;
   const hasDeferredPanels = hasEvidenceChain;
+
+  useEffect(() => {
+    if (!hasGeoVisualizationSlot) {
+      return;
+    }
+
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (
+        callback: IdleRequestCallback,
+        options?: IdleRequestOptions
+      ) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+
+    if (typeof idleWindow.requestIdleCallback === "function") {
+      const handle = idleWindow.requestIdleCallback(() => {
+        void preloadGeoVisualizationModule();
+      }, { timeout: 200 });
+
+      return () => {
+        idleWindow.cancelIdleCallback?.(handle);
+      };
+    }
+
+    const timer = window.setTimeout(() => {
+      void preloadGeoVisualizationModule();
+    }, 32);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [hasGeoVisualizationSlot]);
 
   useEffect(() => {
     if (!textContent) {
@@ -363,7 +399,7 @@ const AssistantMessageBase: React.FC<AssistantMessageBaseProps> = ({
   );
 
   // 如果完全没有内容，只显示子组件（不带头像）
-  if (!hasTextContent && !hasAgentState && !isLoading) {
+  if (!hasTextContent && !hasAgentState && !hasRenderableGeoSection && !isLoading) {
     return <>{subComponent}</> || null;
   }
 
@@ -373,7 +409,7 @@ const AssistantMessageBase: React.FC<AssistantMessageBaseProps> = ({
   }
 
   // 避免实时进度被历史/非当前消息重复渲染成“空块”。
-  if (!hasPersistedProgress && !shouldRenderRuntimeProgress && !hasTextContent && !hasSubComponent) {
+  if (!hasPersistedProgress && !shouldRenderRuntimeProgress && !hasTextContent && !hasSubComponent && !hasRenderableGeoSection) {
     return null;
   }
 
@@ -422,21 +458,24 @@ const AssistantMessageBase: React.FC<AssistantMessageBaseProps> = ({
           <div className="assistant-sub">{subComponent}</div>
         )}
 
-        {/* 案例分布图（地理数据可视化） - 放在报告末尾 */}
-        {hasGeoPoints && !isStreaming && !isLoadingGeoData && (
+        {/* 案例分布图（地理数据可视化） - 固定占位高度，避免虚拟列表在滚动中抖动 */}
+        {hasGeoVisualizationSlot && (
           <div className="case-distribution-section">
             <h2 className="case-distribution-title">📍 案例分布图</h2>
-            <Suspense fallback={<div className="geo-loading">加载地图组件中...</div>}>
-              <LazyGeoVisualization geoPoints={geoPointsToDisplay!} />
-            </Suspense>
-          </div>
-        )}
-
-        {/* 地图数据加载中 */}
-        {hasGeoDataId && !hasGeoPoints && isLoadingGeoData && (
-          <div className="case-distribution-section">
-            <h2 className="case-distribution-title">📍 案例分布图</h2>
-            <div className="geo-loading">加载地图数据中...</div>
+            <div className="case-distribution-body">
+              {isLoadingGeoData ? (
+                renderGeoPlaceholder("加载地图数据中...", "正在准备案例点位和行政区划数据")
+              ) : hasGeoPoints ? (
+                <Suspense fallback={renderGeoPlaceholder("加载地图组件中...", "正在初始化地图画布")}>
+                  <LazyGeoVisualization
+                    geoPoints={geoPointsToDisplay!}
+                    geoDataId={agentDataIds?.geoDataId ?? ""}
+                  />
+                </Suspense>
+              ) : (
+                <div className="geo-loading geo-loading-empty">当前消息没有可展示的地图点位</div>
+              )}
+            </div>
           </div>
         )}
 

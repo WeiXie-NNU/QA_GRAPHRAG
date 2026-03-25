@@ -10,7 +10,7 @@
   overflow: hidden;
 }
 
-.evidence-chain-header {
+.evidence-chain-container .evidence-chain-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -21,23 +21,23 @@
   user-select: none;
 }
 
-.evidence-chain-header:hover {
+.evidence-chain-container .evidence-chain-header:hover {
   background: linear-gradient(135deg, #5a6fd6 0%, #6a4296 100%);
 }
 
-.evidence-chain-title {
+.evidence-chain-container .evidence-chain-title {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
 }
 
-.evidence-chain-meta {
+.evidence-chain-container .evidence-chain-meta {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.evidence-count {
+.evidence-chain-container .evidence-count {
   font-size: 12px;
   opacity: 0.9;
   background: rgba(255, 255, 255, 0.2);
@@ -45,7 +45,7 @@
   border-radius: 12px;
 }
 
-.toggle-btn {
+.evidence-chain-container .toggle-btn {
   background: rgba(255, 255, 255, 0.2);
   border: none;
   color: white;
@@ -56,25 +56,25 @@
   transition: background 0.2s;
 }
 
-.toggle-btn:hover {
+.evidence-chain-container .toggle-btn:hover {
   background: rgba(255, 255, 255, 0.3);
 }
 
 /* 证据链内容区域 */
-.evidence-chain-body {
+.evidence-chain-container .evidence-chain-body {
   padding: 16px 20px;
   background: white;
 }
 
 /* 单个证据节点 */
-.evidence-node {
+.evidence-chain-container .evidence-node {
   display: flex;
   gap: 16px;
   min-height: 60px;
 }
 
 /* 时间线 */
-.evidence-timeline {
+.evidence-chain-container .evidence-timeline {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -82,7 +82,7 @@
   flex-shrink: 0;
 }
 
-.evidence-dot {
+.evidence-chain-container .evidence-dot {
   width: 36px;
   height: 36px;
   border-radius: 50%;
@@ -95,15 +95,15 @@
   transition: transform 0.2s;
 }
 
-.evidence-dot:hover {
+.evidence-chain-container .evidence-dot:hover {
   transform: scale(1.1);
 }
 
-.evidence-icon {
+.evidence-chain-container .evidence-icon {
   font-size: 16px;
 }
 
-.evidence-line {
+.evidence-chain-container .evidence-line {
   width: 2px;
   flex-grow: 1;
   background: linear-gradient(to bottom, #2196F3, #e0e0e0);
@@ -112,12 +112,12 @@
 }
 
 /* 内容区域 */
-.evidence-content {
+.evidence-chain-container .evidence-content {
   flex-grow: 1;
   padding-bottom: 16px;
 }
 
-.evidence-header {
+.evidence-chain-container .evidence-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -125,23 +125,23 @@
   padding: 4px 0;
 }
 
-.evidence-step {
+.evidence-chain-container .evidence-step {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.step-name {
+.evidence-chain-container .step-name {
   font-weight: 600;
   font-size: 14px;
 }
 
-.step-source {
+.evidence-chain-container .step-source {
   font-size: 12px;
   color: #888;
 }
 
-.expand-btn {
+.evidence-chain-container .expand-btn {
   background: none;
   border: 1px solid #ddd;
   color: #666;
@@ -152,17 +152,17 @@
   transition: all 0.2s;
 }
 
-.expand-btn:hover {
+.evidence-chain-container .expand-btn:hover {
   background: #f5f5f5;
   border-color: #bbb;
 }
 
 /* 证据正文 */
-.evidence-body {
+.evidence-chain-container .evidence-body {
   margin-top: 8px;
 }
 
-.evidence-text {
+.evidence-chain-container .evidence-text {
   margin: 0;
   font-size: 13px;
   color: #333;
@@ -170,7 +170,7 @@
 }
 
 /* 详情区域 */
-.evidence-detail {
+.evidence-chain-container .evidence-detail {
   margin-top: 12px;
   padding: 12px;
   background: #f8f9fa;
@@ -178,7 +178,7 @@
   border-left: 3px solid #667eea;
 }
 
-.detail-line {
+.evidence-chain-container .detail-line {
   margin: 0;
   padding: 4px 0;
   font-size: 12px;
@@ -186,32 +186,32 @@
   line-height: 1.5;
 }
 
-.detail-line:not(:last-child) {
+.evidence-chain-container .detail-line:not(:last-child) {
   border-bottom: 1px dashed #e0e0e0;
 }
 
 /* 响应式设计 */
 @media (max-width: 600px) {
-  .evidence-chain-header {
+  .evidence-chain-container .evidence-chain-header {
     flex-direction: column;
     gap: 8px;
     text-align: center;
   }
 
-  .evidence-node {
+  .evidence-chain-container .evidence-node {
     gap: 12px;
   }
 
-  .evidence-timeline {
+  .evidence-chain-container .evidence-timeline {
     width: 28px;
   }
 
-  .evidence-dot {
+  .evidence-chain-container .evidence-dot {
     width: 28px;
     height: 28px;
   }
 
-  .evidence-icon {
+  .evidence-chain-container .evidence-icon {
     font-size: 12px;
   }
 }

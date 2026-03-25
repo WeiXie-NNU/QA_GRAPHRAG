@@ -156,9 +156,45 @@ function serveResources(): Plugin {
 export default defineConfig({
   plugins: [geojsonPlugin(), react(), serveKgData(), serveResources()],
   build: {
+    cssCodeSplit: true,
+    modulePreload: false,
     rollupOptions: {
       output: {
+        onlyExplicitManualChunks: true,
         manualChunks(id) {
+          const normalizedId = id.split('\\').join('/')
+
+          if (id.includes('vite/preload-helper')) {
+            return 'vendor-preload'
+          }
+
+          if (
+            normalizedId.includes('/src/components/graphrag-viewer/') ||
+            normalizedId.endsWith('/src/pages/GraphPage.tsx')
+          ) {
+            return 'app-graph'
+          }
+
+          if (
+            normalizedId.includes('/src/components/chat/') ||
+            normalizedId.endsWith('/src/App.tsx') ||
+            normalizedId.endsWith('/src/contexts/AgentContext.tsx')
+          ) {
+            return 'app-chat'
+          }
+
+          if (
+            normalizedId.endsWith('/src/components/sidebar/RightPanel.tsx') ||
+            normalizedId.endsWith('/src/components/MapView.tsx') ||
+            normalizedId.endsWith('/src/components/CaseDetailSidebar.tsx')
+          ) {
+            return 'app-right-panel'
+          }
+
+          if (normalizedId.endsWith('/src/contexts/DrawerContext.tsx')) {
+            return 'app-drawer'
+          }
+
           if (!id.includes('node_modules')) {
             return undefined
           }
@@ -168,12 +204,38 @@ export default defineConfig({
           }
 
           if (
-            id.includes('react-force-graph') ||
-            id.includes('three') ||
+            id.includes('react-force-graph-3d') ||
+            id.includes('/three/') ||
             id.includes('three-spritetext') ||
-            id.includes('cytoscape')
+            id.includes('CSS2DRenderer')
           ) {
+            return 'vendor-graph-3d'
+          }
+
+          if (
+            id.includes('react-force-graph-2d') ||
+            id.includes('d3-force-3d') ||
+            id.includes('canvas-force-graph')
+          ) {
+            return 'vendor-graph-2d'
+          }
+
+          if (
+            id.includes('hyparquet') ||
+            id.includes('fuse.js')
+          ) {
+            return 'vendor-graph-data'
+          }
+
+          if (id.includes('cytoscape')) {
             return 'vendor-graph'
+          }
+
+          if (
+            id.includes('react-markdown') ||
+            id.includes('remark-gfm')
+          ) {
+            return 'vendor-markdown'
           }
 
           if (
@@ -184,8 +246,24 @@ export default defineConfig({
             return 'vendor-code'
           }
 
-          if (id.includes('@copilotkit')) {
+          if (
+            id.includes('@copilotkit') ||
+            id.includes('@copilotkitnext') ||
+            id.includes('@radix-ui') ||
+            id.includes('@floating-ui') ||
+            id.includes('class-variance-authority') ||
+            id.includes('tailwind-merge') ||
+            id.includes('/clsx/') ||
+            id.includes('/zod/') ||
+            id.includes('/uuid/') ||
+            id.includes('partial-json') ||
+            id.includes('lucide-react')
+          ) {
             return 'vendor-copilot'
+          }
+
+          if (id.includes('react-dropzone')) {
+            return 'vendor-case'
           }
 
           if (id.includes('@tanstack/react-query')) {

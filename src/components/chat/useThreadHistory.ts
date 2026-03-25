@@ -1,9 +1,8 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
 import type { AgentType } from "../../lib/consts";
 import {
-  getThreadClientState,
   getThreadMessagesPage,
   type ThreadMessagesPage,
   type ThreadPageMessage,
@@ -18,6 +17,7 @@ interface UseThreadHistoryOptions {
   userId: string;
   enabled: boolean;
   anchorBeforeMessageId?: string | null;
+  persistedMessageCount?: number;
   visibleMessageCount?: number;
 }
 
@@ -44,17 +44,10 @@ export function useThreadHistory({
   userId,
   enabled,
   anchorBeforeMessageId = null,
+  persistedMessageCount = 0,
   visibleMessageCount = 0,
 }: UseThreadHistoryOptions) {
   const isQueryEnabled = Boolean(enabled && threadId);
-  const clientStateQuery = useQuery({
-    queryKey: ["thread-client-state", userId, agent, threadId],
-    enabled: isQueryEnabled,
-    queryFn: async () => getThreadClientState(threadId, agent),
-    staleTime: 15_000,
-    refetchOnMount: true,
-    refetchOnWindowFocus: false,
-  });
 
   const query = useInfiniteQuery({
     queryKey: ["thread-history", userId, agent, threadId, anchorBeforeMessageId || "latest"],
@@ -99,7 +92,6 @@ export function useThreadHistory({
     [query.data?.pages],
   );
 
-  const persistedMessageCount = Number(clientStateQuery.data?.message_count || 0);
   const hasFetchedAnyHistoryPage = (query.data?.pages.length ?? 0) > 0;
   const hasOlderHistory = isQueryEnabled && (
     hasFetchedAnyHistoryPage
@@ -110,7 +102,7 @@ export function useThreadHistory({
   return {
     historyMessages,
     hasOlderHistory,
-    isHistoryLoading: isQueryEnabled && clientStateQuery.isPending && !anchorBeforeMessageId,
+    isHistoryLoading: false,
     isLoadingOlderHistory: isQueryEnabled && query.isFetchingNextPage,
     loadOlderHistory: () => {
       if (!isQueryEnabled || !anchorBeforeMessageId || query.isFetchingNextPage) {

@@ -17,6 +17,7 @@ from thread_message_store import (
     fetch_thread_messages_page,
     get_thread_message_count,
     setup_thread_message_tables,
+    sync_thread_message_summary,
 )
 
 
@@ -51,6 +52,16 @@ class ThreadClientStateResponse(BaseModel):
     message_count: int = 0
 
 
+class ThreadBootstrapResponse(BaseModel):
+    thread_id: str
+    thread_exists: bool
+    agentState: Optional[Dict[str, Any]] = None
+    message_count: int = 0
+    messages: List[Dict[str, Any]]
+    has_more: bool
+    next_before_id: Optional[int] = None
+
+
 class ThreadBackfillStatsResponse(BaseModel):
     total_threads: int
     threads_with_message_log: int
@@ -81,7 +92,10 @@ async def setup_thread_metadata_table(db_conn: Any) -> None:
             agent TEXT NOT NULL DEFAULT 'test',
             user_id TEXT NOT NULL DEFAULT 'demo',
             created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            message_count INTEGER NOT NULL DEFAULT 0,
+            last_message_at TEXT,
+            last_message_preview TEXT
         )
         """
     )
@@ -91,6 +105,18 @@ async def setup_thread_metadata_table(db_conn: Any) -> None:
     if "user_id" not in column_names:
         await db_conn.execute(
             "ALTER TABLE thread_metadata ADD COLUMN user_id TEXT NOT NULL DEFAULT 'demo'"
+        )
+    if "message_count" not in column_names:
+        await db_conn.execute(
+            "ALTER TABLE thread_metadata ADD COLUMN message_count INTEGER NOT NULL DEFAULT 0"
+        )
+    if "last_message_at" not in column_names:
+        await db_conn.execute(
+            "ALTER TABLE thread_metadata ADD COLUMN last_message_at TEXT"
+        )
+    if "last_message_preview" not in column_names:
+        await db_conn.execute(
+            "ALTER TABLE thread_metadata ADD COLUMN last_message_preview TEXT"
         )
     await db_conn.execute(
         "UPDATE thread_metadata SET user_id = ? WHERE user_id IS NULL OR user_id = ''",
@@ -109,6 +135,9 @@ async def setup_thread_metadata_table(db_conn: Any) -> None:
         "CREATE INDEX IF NOT EXISTS idx_thread_metadata_updated_at ON thread_metadata(updated_at DESC)"
     )
     await db_conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_thread_metadata_user_agent_last_message ON thread_metadata(user_id, agent, last_message_at DESC)"
+    )
+    await db_conn.execute(
         """
         CREATE TABLE IF NOT EXISTS thread_agent_state (
             thread_id TEXT PRIMARY KEY,
@@ -122,6 +151,13 @@ async def setup_thread_metadata_table(db_conn: Any) -> None:
         "CREATE INDEX IF NOT EXISTS idx_thread_agent_state_updated_at ON thread_agent_state(updated_at DESC)"
     )
     await setup_thread_message_tables(db_conn)
+    async with db_conn.execute(
+        "SELECT thread_id FROM thread_metadata WHERE last_message_at IS NULL OR last_message_preview IS NULL"
+    ) as cursor:
+        rows = await cursor.fetchall()
+    for (thread_id,) in rows:
+        if thread_id:
+            await sync_thread_message_summary(db_conn, str(thread_id))
     await db_conn.commit()
 
 
@@ -145,6 +181,26 @@ def register_thread_routes(
     def _normalize_user_id(raw_user_id: Optional[str]) -> str:
         user_id = str(raw_user_id or DEFAULT_USER_ID).strip().lower()
         return user_id or DEFAULT_USER_ID
+
+    async def _get_thread_message_summary(thread_id: str) -> Dict[str, Any]:
+        db_conn = get_db_conn()
+        async with db_conn.execute(
+            """
+            SELECT COALESCE(message_count, 0), COALESCE(last_message_at, ''), COALESCE(last_message_preview, '')
+            FROM thread_metadata
+            WHERE thread_id = ?
+            LIMIT 1
+            """,
+            (thread_id,),
+        ) as cursor:
+            row = await cursor.fetchone()
+        if not row:
+            return {"message_count": 0, "last_message_at": "", "last_message_preview": ""}
+        return {
+            "message_count": int(row[0] or 0),
+            "last_message_at": str(row[1] or ""),
+            "last_message_preview": str(row[2] or ""),
+        }
 
     async def _upsert_thread_metadata(
         thread_id: str,
@@ -258,6 +314,9 @@ def register_thread_routes(
         db_conn = get_db_conn()
         message_count = await get_thread_message_count(db_conn, thread_id)
         if message_count > 0:
+            summary = await _get_thread_message_summary(thread_id)
+            if int(summary.get("message_count") or 0) != message_count:
+                await sync_thread_message_summary(db_conn, thread_id, do_commit=True)
             return message_count
 
         graph = get_graph_by_agent(agent or "test")
@@ -274,6 +333,49 @@ def register_thread_routes(
         except Exception as e:
             print(f"[WARN] 回填线程消息日志失败: {e}")
         return 0
+
+    async def _load_thread_bootstrap(
+        thread_id: str,
+        agent: str,
+        current_user_id: str,
+        *,
+        limit: int = 40,
+    ) -> ThreadBootstrapResponse:
+        can_access = await _assert_thread_access(
+            thread_id,
+            current_user_id,
+            agent=agent,
+            allow_claim=current_user_id == DEFAULT_USER_ID,
+        )
+        if not can_access:
+            return ThreadBootstrapResponse(
+                thread_id=thread_id,
+                thread_exists=False,
+                agentState=None,
+                message_count=0,
+                messages=[],
+                has_more=False,
+                next_before_id=None,
+            )
+
+        message_count = await _ensure_thread_message_log(thread_id, agent)
+        agent_state_payload = await _load_agent_state_payload(thread_id)
+        page = await fetch_thread_messages_page(
+            get_db_conn(),
+            thread_id=thread_id,
+            limit=limit,
+            total_count=message_count,
+        )
+        thread_exists = bool(message_count) or bool(agent_state_payload) or await _thread_exists(thread_id)
+        return ThreadBootstrapResponse(
+            thread_id=thread_id,
+            thread_exists=thread_exists,
+            agentState=agent_state_payload,
+            message_count=message_count,
+            messages=page["messages"],
+            has_more=bool(page["has_more"]),
+            next_before_id=page["next_before_id"],
+        )
 
     async def _read_thread_state(
         thread_id: str,
@@ -353,15 +455,31 @@ def register_thread_routes(
                 count=0,
             )
 
-        await _ensure_thread_message_log(thread_id, agent or "test")
+        message_count = await _ensure_thread_message_log(thread_id, agent or "test")
         page = await fetch_thread_messages_page(
             get_db_conn(),
             thread_id=thread_id,
             before_id=before_id,
             before_message_id=before_message_id,
             limit=limit,
+            total_count=message_count,
         )
         return ThreadMessagesPageResponse(thread_id=thread_id, **page)
+
+    @app.get("/threads/{thread_id}/bootstrap", response_model=ThreadBootstrapResponse)
+    async def get_thread_bootstrap(
+        thread_id: str,
+        agent: Optional[str] = Query(default="test"),
+        limit: int = Query(default=40, ge=1, le=100),
+        x_user_id: Optional[str] = Header(default=DEFAULT_USER_ID, alias="X-User-Id"),
+    ):
+        """打开线程时的一次性恢复数据：轻量状态 + 最近一页消息。"""
+        return await _load_thread_bootstrap(
+            thread_id=thread_id,
+            agent=agent or "test",
+            current_user_id=_normalize_user_id(x_user_id),
+            limit=limit,
+        )
 
     @app.get("/threads/{thread_id}/client-state", response_model=ThreadClientStateResponse)
     async def get_thread_client_state(
@@ -385,7 +503,10 @@ def register_thread_routes(
                 message_count=0,
             )
 
-        message_count = await get_thread_message_count(get_db_conn(), thread_id)
+        summary = await _get_thread_message_summary(thread_id)
+        message_count = int(summary.get("message_count") or 0)
+        if message_count <= 0:
+            message_count = await get_thread_message_count(get_db_conn(), thread_id)
         agent_state_payload = await _load_agent_state_payload(thread_id)
         return ThreadClientStateResponse(
             thread_id=thread_id,
@@ -462,31 +583,43 @@ def register_thread_routes(
         current_user_id = _normalize_user_id(x_user_id)
 
         try:
-            inventory = await collect_thread_inventory(
-                db_conn,
-                agent=agent,
-                user_id=current_user_id,
-                default_agent=agent or "test",
-            )
-            meta_map: Dict[str, Dict[str, Any]] = {
-                str(item["thread_id"]): {
-                    "id": str(item["thread_id"]),
-                    "name": str(item.get("name") or f"历史对话 {str(item['thread_id'])[:8]}"),
-                    "createdAt": str(item.get("created_at") or datetime.now().isoformat()),
-                    "agent": str(item.get("agent") or agent or "test"),
-                    "updatedAt": str(item.get("updated_at") or ""),
-                    "userId": str(item.get("user_id") or current_user_id),
-                }
-                for item in inventory
-            }
+            params: List[Any] = [current_user_id]
+            where_clause = "WHERE user_id = ?"
+            if agent:
+                where_clause += " AND agent = ?"
+                params.append(agent)
 
-            threads = sorted(
-                meta_map.values(),
-                key=lambda item: item.get("updatedAt") or item.get("createdAt") or "",
-                reverse=True,
-            )
-            total_count = len(threads)
-            page = threads[offset: offset + limit]
+            async with db_conn.execute(
+                f"SELECT COUNT(1) FROM thread_metadata {where_clause}",
+                tuple(params),
+            ) as cursor:
+                count_row = await cursor.fetchone()
+            total_count = int(count_row[0] or 0) if count_row else 0
+
+            async with db_conn.execute(
+                f"""
+                SELECT thread_id, name, agent, user_id, created_at, updated_at
+                FROM thread_metadata
+                {where_clause}
+                ORDER BY COALESCE(last_message_at, updated_at, created_at) DESC, thread_id DESC
+                LIMIT ? OFFSET ?
+                """,
+                tuple([*params, limit, offset]),
+            ) as cursor:
+                rows = await cursor.fetchall()
+
+            page = [
+                {
+                    "id": str(thread_id),
+                    "name": str(name or f"历史对话 {str(thread_id)[:8]}"),
+                    "createdAt": str(created_at or datetime.now().isoformat()),
+                    "agent": str(row_agent or agent or "test"),
+                    "updatedAt": str(updated_at or ""),
+                    "userId": str(row_user_id or current_user_id),
+                }
+                for thread_id, name, row_agent, row_user_id, created_at, updated_at in rows
+                if thread_id
+            ]
             has_more = offset + len(page) < total_count
             return {
                 "threads": page,

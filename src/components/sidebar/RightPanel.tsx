@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import './RightPanel.css';
 import type { GeoPoint, GraphRAGResultSummary, GraphRAGResult } from '../../lib/types';
 import { getCaseFullDetails, getCasePdfDownloadUrl, getGraphRAGResultById } from '../../services/threadService';
-import { useDrawer } from '../../contexts';
+import { useDrawer } from '../../contexts/DrawerContext';
 
 // ============================================================
 // 右侧面板内容类型定义
