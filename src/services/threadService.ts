@@ -13,19 +13,7 @@ import type { AgentType } from "../lib/consts";
 import type { GraphRAGResult, GraphRAGResultSummary, GeoPoint } from "../lib/types";
 import { getCurrentUserId } from "./authService";
 
-// 旧数据库/旧前端兼容代码（localStorage 迁移）已按需停用，先保留注释便于回滚：
-// const LEGACY_STORAGE_KEY = "graphrag_threads";
-// const STORAGE_KEY_V2 = "graphrag_threads_v2";
-// let cacheCleanupDone = false;
-// let threadMetaMigrationDone = false;
-// function clearLegacyThreadCacheOnce(): void { ... }
-// async function migrateLocalThreadMetaToServer(agent: AgentType = "test"): Promise<void> { ... }
-const THREADS_CACHE_KEY_PREFIX = "graphrag_threads_server_cache_v2";
 const REQUEST_TIMEOUT_MS = 8000;
-
-function getThreadsCacheKey(userId?: string | null): string {
-  return `${THREADS_CACHE_KEY_PREFIX}:${userId || "guest"}`;
-}
 
 function withUserHeaders(init?: RequestInit): RequestInit {
   const headers = new Headers(init?.headers);
@@ -132,29 +120,6 @@ export function createNewThreadId(): string {
   });
 }
 
-/**
- * 从 localStorage 获取所有线程
- */
-export function getThreads(userId?: string | null): ThreadMeta[] {
-  // 非权威快照，仅用于服务端暂不可达时的 UI 回显。
-  try {
-    const resolvedUserId = userId ?? getCurrentUserId();
-    const raw = localStorage.getItem(getThreadsCacheKey(resolvedUserId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as ThreadMeta[];
-    if (!Array.isArray(parsed)) return [];
-
-    return parsed
-      .filter((item) => !item?.userId || item.userId === resolvedUserId)
-      .map((item) => ({
-        ...item,
-        userId: item?.userId ?? resolvedUserId ?? undefined,
-      }));
-  } catch {
-    return [];
-  }
-}
-
 interface ThreadsApiResponse {
   threads?: ThreadMeta[] | string[];
   thread_ids?: string[];
@@ -179,15 +144,14 @@ export interface ThreadClientState {
   message_count: number;
 }
 
-export function saveThreadsCacheSnapshot(threads: ThreadMeta[], userId?: string | null): void {
-  try {
-    const resolvedUserId = userId ?? getCurrentUserId();
-    const snapshot = threads.map((thread) => ({
-      ...thread,
-      userId: thread.userId ?? resolvedUserId ?? undefined,
-    }));
-    localStorage.setItem(getThreadsCacheKey(resolvedUserId), JSON.stringify(snapshot));
-  } catch {}
+export interface ThreadBootstrapState {
+  thread_id: string;
+  thread_exists: boolean;
+  agentState?: AgentStateSnapshot | null;
+  message_count: number;
+  messages: ThreadPageMessage[];
+  has_more: boolean;
+  next_before_id?: number | null;
 }
 
 function normalizeThreadRows(rows: ThreadMeta[], agent: AgentType): ThreadMeta[] {
@@ -276,11 +240,9 @@ export async function getThreadsPageFromServer(
  */
 export async function syncThreadsFromServer(
   agent: AgentType = "test",
-  userId?: string | null,
 ): Promise<ThreadMeta[]> {
   const firstPage = await getThreadsPageFromServer(agent, { offset: 0, limit: 200 });
   if (firstPage) {
-    saveThreadsCacheSnapshot(firstPage.threads, userId);
     return firstPage.threads;
   }
 
@@ -294,7 +256,6 @@ export async function syncThreadsFromServer(
 
     if (Array.isArray(data.threads) && data.threads.length > 0 && typeof data.threads[0] === "object") {
       const rows = normalizeThreadRows(data.threads as ThreadMeta[], agent);
-      saveThreadsCacheSnapshot(rows, userId);
       return rows;
     }
 
@@ -307,7 +268,6 @@ export async function syncThreadsFromServer(
       createdAt: new Date().toISOString(),
       agent,
     }));
-    saveThreadsCacheSnapshot(rows, userId);
     return rows;
   };
 
@@ -331,7 +291,7 @@ export async function syncThreadsFromServer(
     }
   }
 
-  return getThreads(userId);
+  return [];
 }
 
 export async function getThreadClientState(
@@ -347,6 +307,35 @@ export async function getThreadClientState(
     return (await response.json()) as ThreadClientState;
   } catch (e) {
     console.warn("获取线程轻量状态失败:", e);
+    return null;
+  }
+}
+
+export async function getThreadBootstrapState(
+  threadId: string,
+  options: {
+    agent?: AgentType;
+    limit?: number;
+  } = {},
+): Promise<ThreadBootstrapState | null> {
+  try {
+    const params = new URLSearchParams();
+    params.set("agent", String(options.agent ?? "test"));
+    params.set("limit", String(options.limit ?? 40));
+
+    const response = await fetchWithTimeout(
+      `${AGENT_API_URL}/threads/${threadId}/bootstrap?${params.toString()}`,
+      { method: "GET" },
+      15000,
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return (await response.json()) as ThreadBootstrapState;
+  } catch (e) {
+    console.warn("获取线程 bootstrap 失败:", e);
     return null;
   }
 }

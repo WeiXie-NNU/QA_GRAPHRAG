@@ -58,6 +58,7 @@ If you want to add or modify a feature, use these boundaries first:
 - UI layout or interactions: `src/components/`, `src/pages/`, `src/App.tsx`
 - Login or session behavior: `src/contexts/AuthContext.tsx`, `src/services/authService.ts`
 - Thread list and history loading: `src/services/threadService.ts`, `src/hooks/useThreadList.ts`, `src/components/chat/useThreadHistory.ts`
+- Historical thread restore is front-end driven through `/threads/{thread_id}/bootstrap`; thread list data is fetched from the backend and the database is the authoritative source for thread count and existence.
 - Backend thread ownership or persistence: `agent/thread_routes.py`, `agent/thread_message_store.py`, `agent/thread_maintenance.py`
 - Copilot bridge logic: `runtime/server.ts`
 

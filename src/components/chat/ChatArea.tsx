@@ -18,7 +18,7 @@ import { useAgent } from "../../contexts/AgentContext";
 import { CHAT_INSTRUCTIONS } from "../../lib/consts";
 import type { AgentType } from "../../lib/consts";
 import { saveThreadAgentState } from "../../services/threadService";
-import type { AgentStateSnapshot } from "../../services/threadService";
+import type { AgentStateSnapshot, ThreadPageMessage } from "../../services/threadService";
 
 const PERF_OBSERVE_KEY = "__graphrag_perf_observe_v1__";
 
@@ -27,6 +27,7 @@ interface ChatAreaProps {
   threadId: string;
   userId: string;
   persistedMessageCount: number;
+  bootstrapMessages: ThreadPageMessage[];
   shouldLoadHistory: boolean;
 }
 
@@ -117,6 +118,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   threadId,
   userId,
   persistedMessageCount,
+  bootstrapMessages,
   shouldLoadHistory,
 }) => {
   const { state: agentState, running } = useAgent();
@@ -133,13 +135,21 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   const hasPendingInterrupt = Boolean(interrupt);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedRef = useRef<string>("");
+  const normalizedBootstrapMessages = useMemo(
+    () => bootstrapMessages as any[],
+    [bootstrapMessages],
+  );
+  const restoredMessageSource = useMemo(
+    () => [...normalizedBootstrapMessages, ...(messages as any[])],
+    [messages, normalizedBootstrapMessages],
+  );
   const restoredVisibleMessageCount = useMemo(
-    () => countVisibleRestoredMessages(messages as any[]),
-    [messages],
+    () => countVisibleRestoredMessages(restoredMessageSource),
+    [restoredMessageSource],
   );
   const historyAnchorMessageId = useMemo(
-    () => getHistoryAnchorMessageId(messages as any[]),
-    [messages],
+    () => getHistoryAnchorMessageId(restoredMessageSource),
+    [restoredMessageSource],
   );
   const {
     historyMessages,
@@ -261,7 +271,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             historyMessages={historyMessages as any}
             hasOlderHistory={hasOlderHistory}
             isLoadingOlderHistory={isLoadingOlderHistory || isHistoryLoading}
-            initialMessages=""
+            initialMessages={normalizedBootstrapMessages as any}
             onLoadOlderHistory={loadOlderHistory}
             threadKey={threadId}
           />

@@ -1,11 +1,9 @@
 import { type InfiniteData, type QueryClient, useInfiniteQuery } from "@tanstack/react-query";
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 
 import type { AgentType } from "../lib/consts";
 import {
-  getThreads,
   getThreadsPageFromServer,
-  saveThreadsCacheSnapshot,
   type ThreadMeta,
   type ThreadsPage,
 } from "../services/threadService";
@@ -53,8 +51,6 @@ function mergeThreads(pages: ThreadsPage[]): ThreadMeta[] {
 }
 
 export function useThreadList(agent: AgentType, userId: string) {
-  const cachedThreads = useMemo(() => getThreads(userId), [userId]);
-
   const query = useInfiniteQuery({
     queryKey: THREADS_QUERY_KEY(userId, agent),
     initialPageParam: 0,
@@ -74,34 +70,12 @@ export function useThreadList(agent: AgentType, userId: string) {
       if (!lastPage.hasMore) return undefined;
       return allPages.reduce((acc, page) => acc + page.threads.length, 0);
     },
-    placeholderData:
-      cachedThreads.length > 0
-        ? {
-            pages: [
-              {
-                threads: cachedThreads,
-                count: cachedThreads.length,
-                offset: 0,
-                limit: cachedThreads.length,
-                hasMore: false,
-              },
-            ],
-            pageParams: [0],
-          }
-        : undefined,
   });
 
   const threads = useMemo(() => mergeThreads(query.data?.pages ?? []), [query.data?.pages]);
 
-  useEffect(() => {
-    if (threads.length > 0) {
-      saveThreadsCacheSnapshot(threads, userId);
-    }
-  }, [threads, userId]);
-
   return {
     ...query,
-    cachedThreads,
     threads,
     hasMoreThreads: Boolean(query.hasNextPage),
     isLoadingThreads: query.isPending && threads.length === 0,

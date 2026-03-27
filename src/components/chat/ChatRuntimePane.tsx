@@ -10,6 +10,7 @@ import { WelcomeScreen } from "./WelcomeScreen";
 import { AgentProvider } from "../../contexts/AgentContext";
 import { CHAT_SUGGESTIONS, RUNTIME_URL } from "../../lib/consts";
 import type { AgentType } from "../../lib/consts";
+import type { ThreadPageMessage } from "../../services/threadService";
 
 const LazyChatArea = lazy(() => import("./ChatArea").then((module) => ({ default: module.ChatArea })));
 
@@ -20,6 +21,7 @@ interface ChatRuntimePaneProps {
   isNewThread: boolean;
   threadExists: boolean;
   persistedMessageCount: number;
+  bootstrapMessages: ThreadPageMessage[];
   onFirstMessage: (message: string) => Promise<void>;
 }
 
@@ -163,6 +165,7 @@ export default function ChatRuntimePane({
   isNewThread,
   threadExists,
   persistedMessageCount,
+  bootstrapMessages,
   onFirstMessage,
 }: ChatRuntimePaneProps) {
   return (
@@ -183,6 +186,7 @@ export default function ChatRuntimePane({
               threadId={threadId}
               userId={userId}
               persistedMessageCount={persistedMessageCount}
+              bootstrapMessages={bootstrapMessages}
               shouldLoadHistory={threadExists && !isNewThread}
               key={`${userId}:${threadId}:${threadExists ? "known" : "unknown"}`}
             />

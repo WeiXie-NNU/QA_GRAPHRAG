@@ -11,7 +11,7 @@ import {
   addThread,
   createNewThreadId,
   deleteThread,
-  getThreadClientState,
+  getThreadBootstrapState,
   updateThreadName,
   type ThreadMeta,
 } from "./services/threadService";
@@ -70,37 +70,41 @@ function AppContent() {
     [threadId, threads],
   );
   const routeState = location.state as { isNewThread?: boolean } | null;
-  const shouldProbeRemoteThreadState =
+  const shouldBootstrapThread =
     Boolean(threadId) &&
     !pendingNewThreadId &&
-    !threadInList &&
     routeState?.isNewThread !== true;
 
-  const clientStateQuery = useQuery({
-    queryKey: ["thread-client-state", currentUserId, agent, threadId],
-    queryFn: () => getThreadClientState(threadId, agent),
-    enabled: shouldProbeRemoteThreadState,
+  const threadBootstrapQuery = useQuery({
+    queryKey: ["thread-bootstrap", currentUserId, agent, threadId],
+    queryFn: () => getThreadBootstrapState(threadId, { agent, limit: 40 }),
+    enabled: shouldBootstrapThread,
     staleTime: 30_000,
+    refetchOnWindowFocus: false,
   });
   const hasMeaningfulAgentState =
     (
-      Array.isArray(clientStateQuery.data?.agentState?.steps) &&
-      clientStateQuery.data.agentState.steps.length > 0
+      Array.isArray(threadBootstrapQuery.data?.agentState?.steps) &&
+      threadBootstrapQuery.data.agentState.steps.length > 0
     ) ||
-    Boolean(clientStateQuery.data?.agentState?.local_rag_result) ||
-    Boolean(clientStateQuery.data?.agentState?.global_rag_result);
+    Boolean(threadBootstrapQuery.data?.agentState?.local_rag_result) ||
+    Boolean(threadBootstrapQuery.data?.agentState?.global_rag_result);
   const hasPersistedConversationData =
     hasMeaningfulAgentState ||
-    Number(clientStateQuery.data?.message_count || 0) > 0;
+    Number(threadBootstrapQuery.data?.message_count || 0) > 0;
 
   const isRouteMarkedNewThread =
     routeState?.isNewThread === true &&
     !hasPersistedConversationData;
-  const threadExists = Boolean(threadInList) || hasPersistedConversationData;
+  const threadExists = Boolean(threadBootstrapQuery.data?.thread_exists);
   const isNewThread =
     pendingNewThreadId === threadId ||
     isRouteMarkedNewThread ||
-    (!threadInList && clientStateQuery.data?.thread_exists === false);
+    (
+      threadBootstrapQuery.isFetched &&
+      threadBootstrapQuery.data?.thread_exists === false &&
+      !threadInList
+    );
 
   const invalidateThreads = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: THREADS_QUERY_KEY(currentUserId, agent) });
@@ -237,7 +241,8 @@ function AppContent() {
             userId={currentUserId}
             isNewThread={isNewThread}
             threadExists={threadExists}
-            persistedMessageCount={Number(clientStateQuery.data?.message_count || 0)}
+            persistedMessageCount={Number(threadBootstrapQuery.data?.message_count || 0)}
+            bootstrapMessages={threadBootstrapQuery.data?.messages ?? []}
             onFirstMessage={handleFirstMessage}
           />
         </Suspense>

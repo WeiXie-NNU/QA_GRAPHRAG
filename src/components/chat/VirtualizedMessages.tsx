@@ -14,8 +14,11 @@ import MessageListPerformanceContext from "./MessageListPerformanceContext";
 const LOAD_OLDER_SCROLL_THRESHOLD_PX = 96;
 const SCROLL_IDLE_TIMEOUT_MS = 140;
 
-function makeInitialMessages(initial: string | string[] | undefined): Message[] {
+function makeInitialMessages(initial: string | string[] | Message[] | undefined): Message[] {
   if (!initial) return [];
+  if (Array.isArray(initial) && initial.length > 0 && typeof initial[0] === "object") {
+    return initial as Message[];
+  }
   if (Array.isArray(initial)) {
     return initial.map((content) => ({ id: content, role: "assistant", content }));
   }
@@ -180,7 +183,7 @@ type VirtualizedMessagesProps = MessagesProps & {
   historyMessages?: Message[];
   hasOlderHistory?: boolean;
   isLoadingOlderHistory?: boolean;
-  initialMessages?: string | string[];
+  initialMessages?: string | string[] | Message[];
   onLoadOlderHistory?: () => void | Promise<void>;
   threadKey?: string;
 };
